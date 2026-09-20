@@ -69,11 +69,5 @@ export async function fetchVerseSlugs() {
   return (data || []).map((v) => v.slug).filter(Boolean);
 }
 
-// A short, word-boundary-safe preview of verse text.
-export function snippetOf(text, len = 90) {
-  const t = String(text || '').trim();
-  if (t.length <= len) return t;
-  const cut = t.slice(0, len);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${cut.slice(0, lastSpace > 40 ? lastSpace : len)}…`;
-}
+// Re-export the shared text helper so server code has one import path.
+export { snippetOf } from './text';

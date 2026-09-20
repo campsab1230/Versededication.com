@@ -5,7 +5,7 @@ import { useRouter } from 'next/router';
 import Modal from './Modal';
 import { MAX_MESSAGE_LENGTH, CHARITY_PERCENT, CHARITY } from '@/lib/site';
 import { TIERS, formatPrice } from '@/lib/pricing';
-import { snippetOf } from '@/lib/verseData';
+import { snippetOf } from '@/lib/text';
 
 const FAQ_ITEMS = [
   {
@@ -191,6 +191,20 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
             <p>Every verse can be dedicated by more than one person — Scripture belongs to everyone.</p>
           </div>
 
+          <div className="search-wrap">
+            <label className="sr-only" htmlFor="verse-search">
+              Search verses by reference, word, or theme
+            </label>
+            <input
+              id="verse-search"
+              type="search"
+              className="search-input"
+              placeholder="Search a verse, a word, or a feeling…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
           <div className="pills" role="group" aria-label="Filter verses by theme">
             <button
               type="button"
@@ -273,8 +287,12 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
           <p className="charity-note">
             {CHARITY_PERCENT}% given with every dedication.
             <span>
-              Every purchase gives {CHARITY_PERCENT}% toward Bible translation, so someone somewhere
-              reads these words for the first time. Not tax-deductible for the buyer.
+              Every purchase gives {CHARITY_PERCENT}% to{' '}
+              <a href={CHARITY.url} target="_blank" rel="noopener noreferrer">
+                {CHARITY.name}
+              </a>
+              , who translate Scripture into languages that don&rsquo;t yet have it — {CHARITY.blurb}.
+              Not tax-deductible for the buyer.
             </span>
           </p>
         </div>
@@ -343,7 +361,7 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
           Faith · Love · Always
         </div>
         <p style={{ marginBottom: 10 }}>
-          {CHARITY_PERCENT}% of every purchase is donated to support Bible translation.
+          {CHARITY_PERCENT}% of every purchase is given to {CHARITY.name}.
         </p>
         <nav className="footer-links" aria-label="Footer">
           <a href="/privacy">Privacy</a>
@@ -474,21 +492,6 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
             disabled={submitting}
           >
             {submitting ? 'Redirecting to checkout…' : 'Continue to checkout'}
-          </button>
-        </Modal>
-      )}
-    </>
-  );
-}
-       >
-            {submitting ? 'Redirecting to checkout…' : 'Continue to checkout'}
-          </button>
-        </Modal>
-      )}
-    </>
-  );
-}
-ting to checkout…' : 'Continue to checkout'}
           </button>
         </Modal>
       )}

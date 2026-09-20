@@ -1,5 +1,5 @@
 import LegalPage from '@/components/LegalPage';
-import { CONTACT_EMAIL, SITE_NAME, BIBLE_TRANSLATION } from '@/lib/site';
+import { CONTACT_EMAIL, SITE_NAME, BIBLE_TRANSLATION, CHARITY_PERCENT, CHARITY } from '@/lib/site';
 
 export default function Terms() {
   return (
@@ -51,6 +51,14 @@ export default function Terms() {
       <h2>Refunds</h2>
       <p>
         See our <a href="/refunds">Refund Policy</a>.
+      </p>
+
+      <h2>Charitable share</h2>
+      <p>
+        {CHARITY_PERCENT}% of each purchase is given to {CHARITY.name} ({CHARITY.location}, EIN{' '}
+        {CHARITY.ein}), an organisation that translates Scripture into languages that do not yet have
+        it. This is our business contribution; it is not a donation made on your behalf and is not
+        tax-deductible for you.
       </p>
 
       <h2>Limitation of liability</h2>

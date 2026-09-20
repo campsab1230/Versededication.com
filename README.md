@@ -1,7 +1,8 @@
 # Verse Dedication
 
 Dedicate a Bible verse to someone you love. A personalized certificate — digital (emailed
-instantly) or Heirloom (printed and mailed). A share of every purchase supports Bible translation.
+instantly) or Heirloom (printed and mailed). 10% of every purchase is given to **Pioneer Bible
+Translators** (EIN 23-7433923) — Charity Navigator top rating, Candid Platinum, ECFA accredited.
 
 Built with **Next.js (Pages Router)** + **Supabase** + **Stripe** + **Resend**, with certificate
 PDFs generated server-side via **pdf-lib**.

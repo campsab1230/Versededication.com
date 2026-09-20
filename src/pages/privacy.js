@@ -1,5 +1,5 @@
 import LegalPage from '@/components/LegalPage';
-import { CONTACT_EMAIL, SITE_NAME, CHARITY_PERCENT } from '@/lib/site';
+import { CONTACT_EMAIL, SITE_NAME, CHARITY_PERCENT, CHARITY } from '@/lib/site';
 
 export default function Privacy() {
   return (
@@ -64,8 +64,10 @@ export default function Privacy() {
 
       <h2>Charitable share</h2>
       <p>
-        {CHARITY_PERCENT}% of each purchase is set aside for Bible translation work. That is a business
-        contribution, not a charitable donation made on your behalf, so it is not tax-deductible for you.
+        {CHARITY_PERCENT}% of each purchase is given to {CHARITY.name} ({CHARITY.location}, EIN{' '}
+        {CHARITY.ein}), a tax-exempt organisation that translates Scripture into languages that do not
+        yet have it. That is a business contribution, not a charitable donation made on your behalf, so
+        it is not tax-deductible for you.
       </p>
 
       <h2>Contact</h2>
