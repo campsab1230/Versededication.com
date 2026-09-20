@@ -3,7 +3,7 @@
 // Edit copy/branding here instead of hunting through pages.
 // ============================================================
 
-export const SITE_NAME = 'Verse 4 You';
+export const SITE_NAME = 'Verse Dedication';
 export const SITE_TAGLINE = 'Faith · Love · Always';
 export const SITE_KICKER = 'A word for today. A light for tomorrow.';
 export const SITE_DESCRIPTION =
@@ -27,6 +27,6 @@ export const CHARITY_DESCRIPTION =
   'donated to support Bible translation work, so Scripture can reach people who do not yet have it in their own language.';
 
 export const CONTACT_EMAIL =
-  process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'hello@verse4you.com';
+  process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'hello@versededication.com';
 
 export const MAX_MESSAGE_LENGTH = 140;

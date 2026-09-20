@@ -18,7 +18,7 @@ export function stripe() {
   cached = new Stripe(key, {
     // Pin the API version so behavior can't shift under us.
     apiVersion: '2024-06-20',
-    appInfo: { name: 'Verse 4 You', version: '1.0.0' },
+    appInfo: { name: 'Verse Dedication', version: '1.0.0' },
   });
   return cached;
 }

@@ -125,7 +125,7 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
           <path d="M24 6 L24 30 M15 14 L33 14" stroke="#C9A968" strokeWidth="2" strokeLinecap="round" />
           <circle cx="24" cy="36" r="4" stroke="#C9A968" strokeWidth="1.4" fill="none" />
         </svg>
-        <p className="hero-brand">Verse 4 You</p>
+        <p className="hero-brand">Verse Dedication</p>
         <p className="hero-kicker">A word for today. A light for tomorrow.</p>
         <h1>Dedicate a verse to someone you love.</h1>
         <p>
@@ -310,7 +310,7 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
 
       <footer>
         <div className="serif" style={{ fontSize: 22 }}>
-          Verse 4 You
+          Verse Dedication
         </div>
         <div className="serif" style={{ fontSize: 15, marginBottom: 16 }}>
           Faith · Love · Always

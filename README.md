@@ -1,4 +1,4 @@
-# Verse 4 You
+# Verse Dedication
 
 Dedicate a Bible verse to someone you love. A personalized certificate — digital (emailed
 instantly) or Heirloom (printed and mailed). A share of every purchase supports Bible translation.

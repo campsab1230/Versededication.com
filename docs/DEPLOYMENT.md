@@ -1,4 +1,4 @@
-# Deployment Guide — Verse 4 You
+# Deployment Guide — Verse Dedication
 
 This app is **Next.js (Pages Router)** with server-side API routes, so it needs a host that runs
 Node serverless functions (Vercel is the smoothest; Netlify / Render / a Node VPS also work). It is
@@ -36,7 +36,7 @@ Node serverless functions (Vercel is the smoothest; Netlify / Render / a Node VP
 ## 3. Email (Resend)
 
 1. Create a key at resend.com → `RESEND_API_KEY`.
-2. Verify a sending domain and set `EMAIL_FROM` (e.g. `Verse 4 You <certificates@yourdomain.com>`).
+2. Verify a sending domain and set `EMAIL_FROM` (e.g. `Verse Dedication <certificates@yourdomain.com>`).
    - Without a verified domain you can only send to your own address from `onboarding@resend.dev`.
 3. If `RESEND_API_KEY` is unset, the webhook still records the order — it just skips the email.
 
@@ -52,7 +52,7 @@ STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 NEXT_PUBLIC_SITE_URL=https://your-domain.com
 RESEND_API_KEY=
-EMAIL_FROM=Verse 4 You <certificates@your-domain.com>
+EMAIL_FROM=Verse Dedication <certificates@your-domain.com>
 CERTIFICATE_BUCKET=certificates
 ```
 
