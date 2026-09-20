@@ -1,45 +1,113 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import { SITE_NAME, BIBLE_TRANSLATION, CHARITY_PERCENT, siteUrl } from './site';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
+
+import { CERTIFICATE_TEMPLATE } from './certificateTemplate';
+import { CERTIFICATE_SEAL } from './certificateSeal';
+import {
+  CinzelBold,
+  CinzelDecorativeBold,
+  CrimsonBold,
+  CrimsonItalic,
+  CrimsonRegular,
+  GreatVibes,
+} from './certificateFonts';
+import { BIBLE_TRANSLATION_ABBR, CHARITY_PERCENT, SITE_NAME } from './site';
 
 // ============================================================
 // Certificate PDF generation (server-side only).
 //
-// Uses pdf-lib (pure JS, no native deps) so it runs anywhere
-// Node runs — including serverless functions.
+// A US-Letter LANDSCAPE keepsake (792 x 612 pt) built in two layers:
 //
-// Produces a US Letter portrait certificate:
-//   - double gold rule border
-//   - "Certificate of Dedication" kicker
-//   - recipient name
-//   - the verse text + reference
-//   - optional personal message
-//   - dedicator line (or "Anonymous")
+//   1. the painted template (gold filigree frame, mountain/lake dawn,
+//      dove, and a clean parchment centre panel) drawn full-bleed
+//   2. every word of text, drawn as real vector type with embedded
+//      Open Font License faces so it stays crisp at any zoom / print size
+//
+// Both the artwork and the fonts are base64-embedded (see
+// assets/make_certificate_template.py and assets/make_font_modules.py)
+// because a serverless function cannot rely on reading files at runtime.
+//
+// Layout constants below are expressed as "top-down" points measured from
+// the top edge — Y() flips them into pdf-lib's bottom-up space. They were
+// tuned against the parchment panel produced by the template generator
+// (panel spans x 168.7..623.3, y 28.8..541.6).
 //
 // Returns a Uint8Array (the raw PDF bytes).
 // ============================================================
 
-const PAGE_W = 612; // 8.5in * 72
-const PAGE_H = 792; // 11in * 72
+const PAGE_W = 792;
+const PAGE_H = 612;
 
-const CREAM = rgb(0.957, 0.933, 0.878); // #F4EEE0
-const CARD = rgb(0.984, 0.973, 0.941); // #FBF8F0
+// top-down point -> pdf-lib point
+const Y = (t) => PAGE_H - t;
+
+// Panel geometry (mirrors PANEL_* in the template generator)
+const PANEL_L = 168.7;
+const PANEL_R = 623.3;
+const PANEL_CX = (PANEL_L + PANEL_R) / 2; // 396
+const TEXT_W = 430; // max line width for wrapped body text
+
+// ---- palette (tuned for legibility on aged parchment) ----
 const INK = rgb(0.165, 0.149, 0.125); // #2A2620
-const INK_SOFT = rgb(0.361, 0.337, 0.29); // #5C564A
-const GOLD = rgb(0.659, 0.51, 0.239); // #A8823D
+const INK_SOFT = rgb(0.396, 0.361, 0.302); // #655C4D
+const GOLD_DEEP = rgb(0.478, 0.353, 0.157); // #7A5A28
+const GOLD = rgb(0.659, 0.510, 0.239); // #A8823D
 const GOLD_LIGHT = rgb(0.788, 0.663, 0.408); // #C9A968
-const GOLD_TEXT = rgb(0.478, 0.373, 0.173); // #7A5F2C
 
-// Wrap text to a max width, returning an array of lines.
-function wrap(text, font, size, maxWidth) {
-  const words = String(text || '').split(/\s+/);
+// ---- layout: top-down points ----
+const L = {
+  kicker: 60,
+  titleSmall: 94,
+  titleBig: 150,
+  titleRule: 196,
+  certifies: 220,
+  certifiesRule: 240,
+  dedicatedTo: 264,
+  recipient: 306,
+  recipientRule: 330,
+  verseTop: 358,
+  verseGap: 21,
+  reference: 426,
+  message: 450,
+  signRule: 504,
+  signLabel: 522,
+  dedicationNo: 558,
+};
+
+const b64ToBytes = (b64) => Uint8Array.from(Buffer.from(b64, 'base64'));
+
+// ---- text helpers -------------------------------------------------
+
+/** Width of `text` drawn with per-glyph letter-spacing. */
+function trackedWidth(font, text, size, track) {
+  const chars = [...String(text)];
+  if (!chars.length) return 0;
+  let w = chars.reduce((a, ch) => a + font.widthOfTextAtSize(ch, size), 0);
+  return w + track * (chars.length - 1);
+}
+
+/** Draw letter-spaced text centred on `x`. Returns the drawn width. */
+function drawTracked(page, text, { x, top, font, size, color, track = 0 }) {
+  const w = trackedWidth(font, text, size, track);
+  let cx = x - w / 2;
+  for (const ch of [...String(text)]) {
+    page.drawText(ch, { x: cx, y: Y(top), font, size, color });
+    cx += font.widthOfTextAtSize(ch, size) + track;
+  }
+  return w;
+}
+
+/** Greedy word wrap to `maxWidth`. */
+function wrapText(text, font, size, maxWidth) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean);
   const lines = [];
   let line = '';
   for (const word of words) {
     const test = line ? `${line} ${word}` : word;
-    if (font.widthOfTextAtSize(test, size) <= maxWidth) {
+    if (font.widthOfTextAtSize(test, size) <= maxWidth || !line) {
       line = test;
     } else {
-      if (line) lines.push(line);
+      lines.push(line);
       line = word;
     }
   }
@@ -47,17 +115,57 @@ function wrap(text, font, size, maxWidth) {
   return lines;
 }
 
-function drawCenteredWrapped(page, text, { font, size, color, centerX, top, maxWidth, lineGap = 4 }) {
-  const lines = wrap(text, font, size, maxWidth);
-  const lineHeight = size + lineGap;
+/** Centred paragraph of wrapped lines. Returns the y (top-down) after it. */
+function drawWrapped(page, text, { top, font, size, color, lineGap = 6, maxWidth = TEXT_W }) {
+  const lines = wrapText(text, font, size, maxWidth);
   let y = top;
   for (const line of lines) {
     const w = font.widthOfTextAtSize(line, size);
-    page.drawText(line, { x: centerX - w / 2, y, size, font, color });
-    y -= lineHeight;
+    page.drawText(line, { x: PANEL_CX - w / 2, y: Y(y), font, size, color });
+    y += size + lineGap;
   }
-  return y; // returns the y after the last line (for chaining)
+  return y;
 }
+
+/** Horizontal rule with a small centred diamond — the classic divider. */
+function ruleWithDiamond(page, top, half, color) {
+  const g = 14;
+  page.drawLine({
+    start: { x: PANEL_CX - half, y: Y(top) },
+    end: { x: PANEL_CX - g, y: Y(top) },
+    thickness: 1,
+    color,
+  });
+  page.drawLine({
+    start: { x: PANEL_CX + g, y: Y(top) },
+    end: { x: PANEL_CX + half, y: Y(top) },
+    thickness: 1,
+    color,
+  });
+  const r = 3.4;
+  page.drawSvgPath(`M ${PANEL_CX} ${Y(top) - r} L ${PANEL_CX + r} ${Y(top)} L ${PANEL_CX} ${Y(top) + r} L ${PANEL_CX - r} ${Y(top)} Z`, {
+    color,
+  });
+}
+
+/** Thin plain rule. */
+function rule(page, top, half, color, thickness = 0.9) {
+  page.drawLine({
+    start: { x: PANEL_CX - half, y: Y(top) },
+    end: { x: PANEL_CX + half, y: Y(top) },
+    thickness,
+    color,
+  });
+}
+
+/** Largest size <= `start` at which `text` fits `maxWidth`. */
+function fitSize(font, text, maxWidth, start, floor = 14) {
+  let size = start;
+  while (size > floor && font.widthOfTextAtSize(text, size) > maxWidth) size -= 1;
+  return size;
+}
+
+// ---- main ---------------------------------------------------------
 
 export async function generateCertificatePdf({
   reference,
@@ -67,163 +175,233 @@ export async function generateCertificatePdf({
   isAnonymous,
   message,
   dedicationNumber,
-}) {
+} = {}) {
   const pdf = await PDFDocument.create();
-  pdf.setTitle(`Certificate of Dedication — ${reference}`);
+  pdf.registerFontkit(fontkit);
+
+  pdf.setTitle(`${SITE_NAME} — ${reference || 'Scripture'}`);
   pdf.setAuthor(SITE_NAME);
-  pdf.setSubject(`A dedication of ${reference} (${BIBLE_TRANSLATION})`);
+  pdf.setSubject('Certificate of Dedication');
   pdf.setCreator(SITE_NAME);
 
   const page = pdf.addPage([PAGE_W, PAGE_H]);
-  const serif = await pdf.embedFont(StandardFonts.TimesRoman);
-  const serifBold = await pdf.embedFont(StandardFonts.TimesRomanBold);
-  const serifItalic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
-  const sans = await pdf.embedFont(StandardFonts.Helvetica);
-  const sansOblique = await pdf.embedFont(StandardFonts.HelveticaOblique);
 
-  // Background
-  page.drawRectangle({ x: 0, y: 0, width: PAGE_W, height: PAGE_H, color: CREAM });
+  // ---- layer 1: painted template
+  const bg = await pdf.embedJpg(b64ToBytes(CERTIFICATE_TEMPLATE));
+  page.drawImage(bg, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
 
-  // Inner card
-  const cardPad = 40;
-  page.drawRectangle({
-    x: cardPad,
-    y: cardPad,
-    width: PAGE_W - cardPad * 2,
-    height: PAGE_H - cardPad * 2,
-    color: CARD,
+  // ---- fonts
+  const cinzel = await pdf.embedFont(b64ToBytes(CinzelBold), { subset: false });
+  const deco = await pdf.embedFont(b64ToBytes(CinzelDecorativeBold), { subset: false });
+  const crimReg = await pdf.embedFont(b64ToBytes(CrimsonRegular), { subset: false });
+  const crimIt = await pdf.embedFont(b64ToBytes(CrimsonItalic), { subset: false });
+  const crimBold = await pdf.embedFont(b64ToBytes(CrimsonBold), { subset: false });
+  // Great Vibes is a connected cursive face whose `liga`/`calt` substitutions
+  // swap in joining glyph variants.  fontkit applies those substitutions but
+  // NOT the matching GPOS cursive-attachment positioning, so the variants land
+  // on raw advances and names render with visible gaps ("Ben nett").  Turning
+  // the two features off yields the correct base glyphs at correct advances.
+  const vibes = await pdf.embedFont(b64ToBytes(GreatVibes), {
+    subset: false,
+    features: { liga: false, calt: false },
   });
 
-  // Double gold border
-  const outer = 26;
-  page.drawRectangle({
-    x: outer,
-    y: outer,
-    width: PAGE_W - outer * 2,
-    height: PAGE_H - outer * 2,
-    borderColor: GOLD,
-    borderWidth: 2,
+  // ---- header
+  drawTracked(page, 'A WORD FOR TODAY · A LIGHT FOR TOMORROW', {
+    x: PANEL_CX,
+    top: L.kicker,
+    font: cinzel,
+    size: 8.6,
+    color: INK_SOFT,
+    track: 1.9,
   });
-  const innerOff = 34;
-  page.drawRectangle({
-    x: innerOff,
-    y: innerOff,
-    width: PAGE_W - innerOff * 2,
-    height: PAGE_H - innerOff * 2,
-    borderColor: GOLD_LIGHT,
-    borderWidth: 0.75,
+  const kickW = trackedWidth(cinzel, 'A WORD FOR TODAY · A LIGHT FOR TOMORROW', 8.6, 1.9);
+  page.drawLine({
+    start: { x: PANEL_CX - kickW / 2 - 30, y: Y(L.kicker) },
+    end: { x: PANEL_CX - kickW / 2 - 10, y: Y(L.kicker) },
+    thickness: 0.8,
+    color: GOLD,
+  });
+  page.drawLine({
+    start: { x: PANEL_CX + kickW / 2 + 10, y: Y(L.kicker) },
+    end: { x: PANEL_CX + kickW / 2 + 30, y: Y(L.kicker) },
+    thickness: 0.8,
+    color: GOLD,
   });
 
-  const cx = PAGE_W / 2;
-  const contentMax = PAGE_W - 180;
-  let y = PAGE_H - 120;
-
-  // Small cross mark
-  const markColor = GOLD;
-  page.drawLine({ start: { x: cx, y: y + 18 }, end: { x: cx, y: y - 20 }, thickness: 1.4, color: markColor });
-  page.drawLine({ start: { x: cx - 9, y: y - 2 }, end: { x: cx + 9, y: y - 2 }, thickness: 1.4, color: markColor });
-  y -= 44;
-
-  // Brand
-  const brandSize = 12;
-  const brandW = sans.widthOfTextAtSize(SITE_NAME.toUpperCase(), brandSize);
-  page.drawText(SITE_NAME.toUpperCase(), {
-    x: cx - brandW / 2,
-    y,
-    size: brandSize,
-    font: sans,
-    color: GOLD_TEXT,
-  });
-  y -= 26;
-
-  // Kicker
-  const kickerSize = 22;
-  const kicker = 'Certificate of Dedication';
-  const kickerW = serifBold.widthOfTextAtSize(kicker, kickerSize);
-  page.drawText(kicker, { x: cx - kickerW / 2, y, size: kickerSize, font: serifBold, color: INK });
-  y -= 46;
-
-  // "This verse is dedicated to"
-  const toLine = 'This verse is dedicated to';
-  const toSize = 13;
-  const toW = serifItalic.widthOfTextAtSize(toLine, toSize);
-  page.drawText(toLine, { x: cx - toW / 2, y, size: toSize, font: serifItalic, color: INK_SOFT });
-  y -= 40;
-
-  // Recipient name (large). Shrink if very long.
-  const name = (recipientName || 'Their name').trim();
-  let nameSize = 40;
-  while (serifBold.widthOfTextAtSize(name, nameSize) > contentMax && nameSize > 18) {
-    nameSize -= 2;
-  }
-  const nameW = serifBold.widthOfTextAtSize(name, nameSize);
-  page.drawText(name, { x: cx - nameW / 2, y, size: nameSize, font: serifBold, color: GOLD_TEXT });
-  y -= 54;
-
-  // Divider
-  page.drawLine({ start: { x: cx - 60, y }, end: { x: cx + 60, y }, thickness: 0.75, color: GOLD_LIGHT });
-  y -= 40;
-
-  // Verse text (italic, wrapped, centered)
-  const verseSize = 15;
-  const verseTop = y;
-  const afterVerse = drawCenteredWrapped(page, `\u201C${verseText}\u201D`, {
-    font: serifItalic,
-    size: verseSize,
+  drawTracked(page, 'CERTIFICATE OF', {
+    x: PANEL_CX,
+    top: L.titleSmall,
+    font: cinzel,
+    size: 16.5,
     color: INK,
-    centerX: cx,
-    top: verseTop,
-    maxWidth: contentMax,
-    lineGap: 6,
+    track: 4.2,
   });
-  y = afterVerse - 10;
 
-  // Reference
-  const refSize = 15;
-  const refW = serifBold.widthOfTextAtSize(`— ${reference}`, refSize);
-  page.drawText(`— ${reference}`, { x: cx - refW / 2, y, size: refSize, font: serifBold, color: GOLD_TEXT });
-  y -= 34;
+  // big decorative word, with a warm highlight so it reads as gilded
+  const bigSize = fitSize(deco, 'DEDICATION', 470, 60, 30);
+  const bigW = deco.widthOfTextAtSize('DEDICATION', bigSize);
+  page.drawText('DEDICATION', {
+    x: PANEL_CX - bigW / 2 + 0.8,
+    y: Y(L.titleBig) - 1.1,
+    font: deco,
+    size: bigSize,
+    color: GOLD_LIGHT,
+  });
+  page.drawText('DEDICATION', {
+    x: PANEL_CX - bigW / 2,
+    y: Y(L.titleBig),
+    font: deco,
+    size: bigSize,
+    color: GOLD_DEEP,
+  });
 
-  // Translation note
-  const tn = BIBLE_TRANSLATION;
-  const tnSize = 10;
-  const tnW = sansOblique.widthOfTextAtSize(tn, tnSize);
-  page.drawText(tn, { x: cx - tnW / 2, y, size: tnSize, font: sansOblique, color: INK_SOFT });
-  y -= 40;
+  ruleWithDiamond(page, L.titleRule, 132, GOLD);
 
-  // Optional personal message
-  if (message && message.trim()) {
-    const afterMsg = drawCenteredWrapped(page, `\u201C${message.trim()}\u201D`, {
-      font: serifItalic,
-      size: 12,
+  drawTracked(page, 'THIS CERTIFIES THAT', {
+    x: PANEL_CX,
+    top: L.certifies,
+    font: cinzel,
+    size: 10.4,
+    color: INK_SOFT,
+    track: 3,
+  });
+  rule(page, L.certifiesRule, 70, GOLD);
+
+  drawTracked(page, 'HAS DEDICATED A BIBLE VERSE TO', {
+    x: PANEL_CX,
+    top: L.dedicatedTo,
+    font: cinzel,
+    size: 8.8,
+    color: INK_SOFT,
+    track: 2.4,
+  });
+
+  // ---- recipient name (script)
+  const name = String(recipientName || '').trim() || 'A Beloved Friend';
+  const nameSize = fitSize(vibes, name, 400, 50, 22);
+  page.drawText(name, {
+    x: PANEL_CX - vibes.widthOfTextAtSize(name, nameSize) / 2,
+    y: Y(L.recipient),
+    font: vibes,
+    size: nameSize,
+    color: GOLD_DEEP,
+  });
+  rule(page, L.recipientRule, 120, GOLD_LIGHT, 0.7);
+
+  // ---- verse body
+  let verseBottom = L.verseTop;
+  const quote = String(verseText || '').trim();
+  if (quote) {
+    // Keep the longest quotations inside the space above the signature block.
+    const maxLines = 3;
+    let size = 11.8;
+    let lines = wrapText(`“${quote}”`, crimIt, size, TEXT_W);
+    while (lines.length > maxLines && size > 9) {
+      size -= 0.4;
+      lines = wrapText(`“${quote}”`, crimIt, size, TEXT_W);
+    }
+    if (lines.length > maxLines) lines = lines.slice(0, maxLines);
+    let y = L.verseTop;
+    for (const line of lines) {
+      const w = crimIt.widthOfTextAtSize(line, size);
+      page.drawText(line, { x: PANEL_CX - w / 2, y: Y(y), font: crimIt, size, color: INK });
+      y += L.verseGap;
+    }
+    verseBottom = y;
+  }
+
+  const refText = String(reference || 'Scripture').trim().toUpperCase();
+  const refTop = Math.max(verseBottom + 10, L.reference);
+  drawTracked(page, refText, {
+    x: PANEL_CX,
+    top: refTop,
+    font: cinzel,
+    size: 9.6,
+    color: GOLD_DEEP,
+    track: 2.2,
+  });
+
+  // ---- personal message
+  const note = String(message || '').trim();
+  if (note) {
+    drawWrapped(page, note, {
+      top: Math.max(refTop + 22, L.message),
+      font: crimIt,
+      size: 10,
       color: INK_SOFT,
-      centerX: cx,
-      top: y,
-      maxWidth: contentMax - 40,
-      lineGap: 4,
+      lineGap: 4.4,
+      maxWidth: 380,
     });
-    y = afterMsg - 26;
   }
 
-  // From line
-  const fromName = isAnonymous || !dedicatorName || !dedicatorName.trim() ? 'Anonymous' : dedicatorName.trim();
-  const fromLine = `dedicated by ${fromName}`;
-  const fromSize = 12;
-  const fromW = sans.widthOfTextAtSize(fromLine, fromSize);
-  page.drawText(fromLine, { x: cx - fromW / 2, y, size: fromSize, font: sans, color: INK_SOFT });
+  // ---- signature block + wax seal
+  rule(page, L.signRule, 210, GOLD_LIGHT, 0.9);
+  drawTracked(page, 'DEDICATED BY', {
+    x: PANEL_CX - 158,
+    top: L.signLabel,
+    font: cinzel,
+    size: 7.6,
+    color: INK_SOFT,
+    track: 1.8,
+  });
+  drawTracked(page, 'DATE', {
+    x: PANEL_CX + 158,
+    top: L.signLabel,
+    font: cinzel,
+    size: 7.6,
+    color: INK_SOFT,
+    track: 1.8,
+  });
 
-  // Footer
-  const footerY = 76;
+  // the dedicator's own name, script, resting on the rule
+  const signer = isAnonymous ? 'Anonymous' : String(dedicatorName || '').trim();
+  if (signer) {
+    const sSize = fitSize(vibes, signer, 250, 24, 14);
+    const sW = vibes.widthOfTextAtSize(signer, sSize);
+    page.drawText(signer, {
+      x: PANEL_CX - 158 - sW / 2,
+      y: Y(L.signRule - 6),
+      font: vibes,
+      size: sSize,
+      color: INK,
+    });
+  }
+
+  const seal = await pdf.embedPng(b64ToBytes(CERTIFICATE_SEAL));
+  const sealW = 92;
+  page.drawImage(seal, {
+    x: PANEL_CX - sealW / 2,
+    y: Y(L.signRule) - sealW / 2,
+    width: sealW,
+    height: sealW,
+  });
+
+  // ---- footer line
   if (dedicationNumber) {
-    const nText = `Dedication No. ${dedicationNumber}`;
-    const nSize = 9;
-    const nW = sans.widthOfTextAtSize(nText, nSize);
-    page.drawText(nText, { x: cx - nW / 2, y: footerY + 16, size: nSize, font: sans, color: GOLD_TEXT });
+    const bits = [`DEDICATION NO. ${String(dedicationNumber).padStart(4, '0')}`];
+    if (refText && reference) bits.push(refText);
+    bits.push(`${BIBLE_TRANSLATION_ABBR}`);
+    drawTracked(page, bits.join('  ·  '), {
+      x: PANEL_CX,
+      top: L.dedicationNo,
+      font: cinzel,
+      size: 7.2,
+      color: INK_SOFT,
+      track: 1.6,
+    });
   }
-  const footnote = `${CHARITY_PERCENT}% of this dedication supports Bible translation · ${siteUrl()}`;
-  const fSize = 8;
-  const fW = sans.widthOfTextAtSize(footnote, fSize);
-  page.drawText(footnote, { x: cx - fW / 2, y: footerY, size: fSize, font: sans, color: INK_SOFT });
 
-  return await pdf.save();
+  drawTracked(page, `${CHARITY_PERCENT}% OF THIS PURCHASE SUPPORTS BIBLE TRANSLATION`, {
+    x: PANEL_CX,
+    top: L.dedicationNo + 15,
+    font: cinzel,
+    size: 6.4,
+    color: GOLD_DEEP,
+    track: 1.3,
+  });
+
+  return pdf.save();
 }
+
+export default generateCertificatePdf;

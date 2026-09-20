@@ -54,7 +54,10 @@ src/
     supabasePublic.js    # anon-key client (browser-safe reads)
     supabaseAdmin.js     # service-role client (server only)
     stripe.js            # server-only Stripe client
-    certificate.js       # pdf-lib certificate generator
+    certificate.js       # pdf-lib certificate generator (landscape, embedded fonts)
+    certificateTemplate.js  # GENERATED — painted template, base64
+    certificateSeal.js      # GENERATED — wax seal PNG, base64
+    certificateFonts.js     # GENERATED — subset OFL fonts, base64
     email.js             # Resend email sender
     dedications.js       # race-safe dedication insert
   pages/

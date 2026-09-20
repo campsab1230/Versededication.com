@@ -43,3 +43,6 @@ coverage/
 *.bak
 *.tar.gz
 *.zip
+
+# Generated font build intermediates
+assets/fonts/build/
