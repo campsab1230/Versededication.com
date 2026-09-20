@@ -20,6 +20,7 @@ export default function VersePage({ verse, related }) {
   const title = `${verse.ref} — Dedicate this verse · ${SITE_NAME}`;
   const description = `${snippetOf(verse.text, 150)} Dedicate ${verse.ref} to someone you love.`;
   const url = `${siteUrl()}/verse/${verse.slug}`;
+  const shareImage = `${siteUrl()}/og-image.png`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -42,7 +43,14 @@ export default function VersePage({ verse, related }) {
         <meta property="og:description" content={description} />
         <meta property="og:type" content="article" />
         <meta property="og:url" content={url} />
+        <meta property="og:image" content={shareImage} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={`${SITE_NAME} — a framed certificate of dedication`} />
         <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={title} />
+        <meta name="twitter:description" content={description} />
+        <meta name="twitter:image" content={shareImage} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

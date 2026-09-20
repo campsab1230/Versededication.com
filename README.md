@@ -24,7 +24,8 @@ PDFs generated server-side via **pdf-lib**.
 - **Idempotent Stripe webhook** that records the order, creates the dedication with a race-safe
   per-verse number, generates the certificate PDF, stores it in Supabase Storage, and emails it.
 - **Legal pages** — Privacy, Terms, Refunds, Contact (templates — review before launch).
-- **SEO** — metadata, Open Graph/Twitter, JSON-LD, `sitemap.xml`, `robots.txt`, favicon.
+- **SEO** — metadata, Open Graph/Twitter cards with a branded share image, JSON-LD,
+  `sitemap.xml`, `robots.txt`, favicon.
 - **Accessibility** — dialogs with `role="dialog"`/`aria-modal`/Escape/scroll-lock, `aria-expanded`
   FAQ, `aria-pressed` filters, visible focus rings.
 
@@ -32,7 +33,6 @@ PDFs generated server-side via **pdf-lib**.
 
 - **Order lookup page** (`/order/[id]`) so a buyer can re-download a certificate.
 - **Admin view** for fulfillment: flip `orders.status` to `shipped`, print labels.
-- **OG image** at `public/og-image.png` (1200×630) — referenced but not yet created.
 - **Rate limiting** on `/api/create-checkout-session` (e.g. Upstash) if abuse appears.
 - **Verse ordering** currently `featured desc, reference asc`; add a `sort_order` column if you want
   a curated order.
@@ -74,6 +74,15 @@ db/
 docs/
   DEPLOYMENT.md          # step-by-step go-live guide
   LEGAL_CHECKLIST.md     # the "cover your own ass" checklist
+public/
+  og-image.png           # GENERATED — 1200x630 social share card
+  favicon.svg
+assets/                  # build-time art pipelines (not shipped to the browser)
+  make_certificate_template.py  # painted template + wax seal → base64 modules
+  make_font_modules.py          # instances + subsets OFL fonts → base64 module
+  make_og_image.py              # social share card → public/og-image.png
+  certificate-template.jpg certificate-seal.png certificate-preview.png
+  fonts/                 # OFL source fonts + their licences
 ```
 
 ## Environment variables
