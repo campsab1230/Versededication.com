@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/router';
 import Modal from './Modal';
-import { MAX_MESSAGE_LENGTH, CHARITY_PERCENT } from '@/lib/site';
+import { MAX_MESSAGE_LENGTH, CHARITY_PERCENT, CHARITY } from '@/lib/site';
 import { TIERS, formatPrice } from '@/lib/pricing';
+import { snippetOf } from '@/lib/verseData';
 
 const FAQ_ITEMS = [
   {
@@ -19,23 +21,28 @@ const FAQ_ITEMS = [
   { q: 'Will my dedication appear publicly?', a: 'Only if you tick "Show my dedication in the public feed." Untick it and the dedication stays private.' },
   {
     q: 'Does any of this go to charity?',
-    a: `Yes — ${CHARITY_PERCENT}% of every purchase supports Bible translation work, so Scripture can reach people who don't yet have it in their own language. It isn't tax-deductible for the buyer.`,
+    a: `Yes — ${CHARITY_PERCENT}% of every purchase is given to ${CHARITY.name}, who translate Scripture into languages that don't yet have it. It isn't tax-deductible for the buyer.`,
   },
 ];
 
-function snippetOf(text, len = 90) {
-  const t = String(text || '').trim();
-  if (t.length <= len) return t;
-  const cut = t.slice(0, len);
-  const lastSpace = cut.lastIndexOf(' ');
-  return `${cut.slice(0, lastSpace > 40 ? lastSpace : len)}…`;
-}
-
 export default function HomeClient({ verses, themes, feedItems, justDedicated }) {
+  const router = useRouter();
   const [activeThemeId, setActiveThemeId] = useState('all');
+  const [search, setSearch] = useState('');
   const [verseModal, setVerseModal] = useState(null);
   const [personalizeOpen, setPersonalizeOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(null);
+
+  // Support deep links like /?open=<verse_id> (used by verse pages' CTA).
+  useEffect(() => {
+    const id = typeof router.query.open === 'string' ? router.query.open : null;
+    if (!id) return;
+    const match = verses.find((v) => v.id === id);
+    if (match) {
+      setVerseModal(match);
+      setPersonalizeOpen(false);
+    }
+  }, [router.query.open, verses]);
 
   const [recipient, setRecipient] = useState('');
   const [dedicator, setDedicator] = useState('');
@@ -47,9 +54,18 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
   const [submitting, setSubmitting] = useState(false);
 
   const filteredVerses = useMemo(() => {
-    if (activeThemeId === 'all') return verses;
-    return verses.filter((v) => v.themeIds.includes(activeThemeId));
-  }, [activeThemeId, verses]);
+    const q = search.trim().toLowerCase();
+    return verses.filter((v) => {
+      const themeOk = activeThemeId === 'all' || v.themeIds.includes(activeThemeId);
+      if (!themeOk) return false;
+      if (!q) return true;
+      return (
+        v.ref.toLowerCase().includes(q) ||
+        v.text.toLowerCase().includes(q) ||
+        v.themeNames.some((n) => n.toLowerCase().includes(q))
+      );
+    });
+  }, [activeThemeId, search, verses]);
 
   function openVerse(v) {
     setVerseModal(v);
@@ -199,8 +215,15 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
 
           <div className="verse-grid">
             {filteredVerses.map((v) => (
-              <button key={v.id} type="button" className="verse-card" onClick={() => openVerse(v)}>
-                <div className="verse-ref">{v.ref}</div>
+              <div key={v.id} className="verse-card" onClick={() => openVerse(v)}>
+                {/* Real link so search engines can crawl the per-verse pages. */}
+                <a
+                  className="verse-ref"
+                  href={`/verse/${v.slug}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {v.ref}
+                </a>
                 <div className="verse-snippet">{snippetOf(v.text)}</div>
                 <div className="verse-meta">
                   <span>
@@ -208,10 +231,14 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
                   </span>
                   <span>{v.themeNames[0] || 'Scripture'}</span>
                 </div>
-              </button>
+              </div>
             ))}
             {filteredVerses.length === 0 && (
-              <p className="empty-state">No verses in this theme yet — try another.</p>
+              <p className="empty-state">
+                {search.trim()
+                  ? `No verses match “${search.trim()}”. Try another word.`
+                  : 'No verses in this theme yet — try another.'}
+              </p>
             )}
           </div>
         </div>
@@ -447,6 +474,21 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
             disabled={submitting}
           >
             {submitting ? 'Redirecting to checkout…' : 'Continue to checkout'}
+          </button>
+        </Modal>
+      )}
+    </>
+  );
+}
+       >
+            {submitting ? 'Redirecting to checkout…' : 'Continue to checkout'}
+          </button>
+        </Modal>
+      )}
+    </>
+  );
+}
+ting to checkout…' : 'Continue to checkout'}
           </button>
         </Modal>
       )}
