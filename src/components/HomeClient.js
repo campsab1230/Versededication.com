@@ -403,14 +403,19 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
           <div className="cert" aria-hidden="true">
             <div className="cert-kicker">Certificate of Dedication</div>
             <h3>This verse is dedicated to</h3>
-            <div className="cert-to-label">dedicated to</div>
-            <div className="cert-to">{recipient || 'Their name'}</div>
+            <div className="cert-to">
+              {recipient ? (
+                recipient
+              ) : (
+                <span className="cert-to-empty">the recipient&rsquo;s name</span>
+              )}
+            </div>
             <div className="cert-verse">
               &ldquo;{verseModal.text}&rdquo; — {verseModal.ref}
             </div>
             {message && <div className="cert-msg">&ldquo;{message}&rdquo;</div>}
             <div className="cert-from">
-              from <b>{dedicator || 'Anonymous'}</b>
+              dedicated by <b>{dedicator.trim() || 'Anonymous'}</b>
             </div>
           </div>
 
@@ -419,7 +424,7 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
             <input
               id="recipient"
               type="text"
-              placeholder="e.g. Grandma Ruth"
+              placeholder="Their name"
               value={recipient}
               aria-invalid={!!recipientError}
               onChange={(e) => {

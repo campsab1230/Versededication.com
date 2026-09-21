@@ -179,7 +179,7 @@ export async function generateCertificatePdf({
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
 
-  pdf.setTitle(`${SITE_NAME} — ${reference || 'Scripture'}`);
+  pdf.setTitle(`${SITE_NAME} — ${String(reference || '').trim() || 'Certificate of Dedication'}`);
   pdf.setAuthor(SITE_NAME);
   pdf.setSubject('Certificate of Dedication');
   pdf.setCreator(SITE_NAME);
@@ -278,15 +278,20 @@ export async function generateCertificatePdf({
   });
 
   // ---- recipient name (script)
-  const name = String(recipientName || '').trim() || 'A Beloved Friend';
-  const nameSize = fitSize(vibes, name, 400, 50, 22);
-  page.drawText(name, {
-    x: PANEL_CX - vibes.widthOfTextAtSize(name, nameSize) / 2,
-    y: Y(L.recipient),
-    font: vibes,
-    size: nameSize,
-    color: GOLD_DEEP,
-  });
+  // Only ever draw a name the buyer actually supplied. The recipient is
+  // required at checkout, so an empty value means something upstream went
+  // wrong — draw nothing rather than inventing a name onto a keepsake.
+  const name = String(recipientName || '').trim();
+  if (name) {
+    const nameSize = fitSize(vibes, name, 400, 50, 22);
+    page.drawText(name, {
+      x: PANEL_CX - vibes.widthOfTextAtSize(name, nameSize) / 2,
+      y: Y(L.recipient),
+      font: vibes,
+      size: nameSize,
+      color: GOLD_DEEP,
+    });
+  }
   rule(page, L.recipientRule, 120, GOLD_LIGHT, 0.7);
 
   // ---- verse body
@@ -311,16 +316,19 @@ export async function generateCertificatePdf({
     verseBottom = y;
   }
 
-  const refText = String(reference || 'Scripture').trim().toUpperCase();
+  // Only draw a reference if the buyer actually chose one.
+  const refText = String(reference || '').trim().toUpperCase();
   const refTop = Math.max(verseBottom + 10, L.reference);
-  drawTracked(page, refText, {
-    x: PANEL_CX,
-    top: refTop,
-    font: cinzel,
-    size: 9.6,
-    color: GOLD_DEEP,
-    track: 2.2,
-  });
+  if (refText) {
+    drawTracked(page, refText, {
+      x: PANEL_CX,
+      top: refTop,
+      font: cinzel,
+      size: 9.6,
+      color: GOLD_DEEP,
+      track: 2.2,
+    });
+  }
 
   // ---- personal message
   const note = String(message || '').trim();

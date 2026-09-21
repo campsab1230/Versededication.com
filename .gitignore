@@ -46,3 +46,9 @@ coverage/
 
 # Generated font build intermediates
 assets/fonts/build/
+
+# Dev harness bundle (regenerate with esbuild)
+scripts/_bundle.mjs
+
+# esbuild dev-harness output (regenerate with npx esbuild)
+scripts/_bundle.mjs
