@@ -1,5 +1,5 @@
 -- ============================================================
--- VERSE 4 YOU — seed data (themes + 45 verses + theme links)
+-- VERSE DEDICATION — seed data (themes + 45 verses + theme links)
 -- Run AFTER schema.sql in the Supabase SQL Editor.
 -- Safe to re-run: uses ON CONFLICT DO NOTHING.
 -- ============================================================

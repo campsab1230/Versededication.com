@@ -1,5 +1,5 @@
 -- ============================================================
--- VERSE 4 YOU — full database setup (hardened)
+-- VERSE DEDICATION — full database setup (hardened)
 -- Run this once in the Supabase SQL editor (Project → SQL Editor → New query)
 --
 -- This is the ORIGINAL schema with the fixes applied:
