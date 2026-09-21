@@ -47,6 +47,13 @@ const PANEL_R = 623.3;
 const PANEL_CX = (PANEL_L + PANEL_R) / 2; // 396
 const TEXT_W = 430; // max line width for wrapped body text
 
+// Signature block geometry. The wax seal is centred on the signature rule and
+// is 92pt wide (x 350..442), so it splits the rule into two clear columns:
+// left 186..350 and right 442..606. Centres therefore sit at PANEL_CX ± 128
+// and each column caps at 148pt, keeping a long name clear of the seal.
+const SIGN_COL_DX = 128; // column centre offset from page centre
+const SIGN_MAX_W = 148; // max drawn width of the name / date
+
 // ---- palette (tuned for legibility on aged parchment) ----
 const INK = rgb(0.165, 0.149, 0.125); // #2A2620
 const INK_SOFT = rgb(0.396, 0.361, 0.302); // #655C4D
@@ -75,6 +82,20 @@ const L = {
 };
 
 const b64ToBytes = (b64) => Uint8Array.from(Buffer.from(b64, 'base64'));
+
+// Deterministic date formatting (locale-independent, so a certificate rendered
+// in any region reads the same). Returns '' for a missing/invalid value.
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function formatDate(value) {
+  if (!value) return '';
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
 
 // ---- text helpers -------------------------------------------------
 
@@ -175,6 +196,7 @@ export async function generateCertificatePdf({
   isAnonymous,
   message,
   dedicationNumber,
+  date,
 } = {}) {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
@@ -344,9 +366,11 @@ export async function generateCertificatePdf({
   }
 
   // ---- signature block + wax seal
+  // The rule runs 186..606 and the seal overlays its centre (350..442),
+  // leaving two usable columns either side.
   rule(page, L.signRule, 210, GOLD_LIGHT, 0.9);
   drawTracked(page, 'DEDICATED BY', {
-    x: PANEL_CX - 158,
+    x: PANEL_CX - SIGN_COL_DX,
     top: L.signLabel,
     font: cinzel,
     size: 7.6,
@@ -354,7 +378,7 @@ export async function generateCertificatePdf({
     track: 1.8,
   });
   drawTracked(page, 'DATE', {
-    x: PANEL_CX + 158,
+    x: PANEL_CX + SIGN_COL_DX,
     top: L.signLabel,
     font: cinzel,
     size: 7.6,
@@ -365,13 +389,27 @@ export async function generateCertificatePdf({
   // the dedicator's own name, script, resting on the rule
   const signer = isAnonymous ? 'Anonymous' : String(dedicatorName || '').trim();
   if (signer) {
-    const sSize = fitSize(vibes, signer, 250, 24, 14);
+    const sSize = fitSize(vibes, signer, SIGN_MAX_W, 24, 12);
     const sW = vibes.widthOfTextAtSize(signer, sSize);
     page.drawText(signer, {
-      x: PANEL_CX - 158 - sW / 2,
+      x: PANEL_CX - SIGN_COL_DX - sW / 2,
       y: Y(L.signRule - 6),
       font: vibes,
       size: sSize,
+      color: INK,
+    });
+  }
+
+  // the date it was given, mirroring the signature on the right column
+  const dateStr = formatDate(date);
+  if (dateStr) {
+    const dSize = fitSize(crimReg, dateStr, SIGN_MAX_W, 12, 8);
+    const dW = crimReg.widthOfTextAtSize(dateStr, dSize);
+    page.drawText(dateStr, {
+      x: PANEL_CX + SIGN_COL_DX - dW / 2,
+      y: Y(L.signRule - 6),
+      font: crimReg,
+      size: dSize,
       color: INK,
     });
   }
@@ -386,9 +424,10 @@ export async function generateCertificatePdf({
   });
 
   // ---- footer line
+  // The chosen reference is already displayed prominently above the quotation,
+  // so it is not repeated here — this line only identifies the certificate.
   if (dedicationNumber) {
     const bits = [`DEDICATION NO. ${String(dedicationNumber).padStart(4, '0')}`];
-    if (refText && reference) bits.push(refText);
     bits.push(`${BIBLE_TRANSLATION_ABBR}`);
     drawTracked(page, bits.join('  ·  '), {
       x: PANEL_CX,

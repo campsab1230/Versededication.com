@@ -139,13 +139,16 @@ async function handleCheckoutCompleted(session) {
       .single();
 
     const pdfBytes = await generateCertificatePdf({
-      reference: verse?.reference || verse_reference || 'Scripture',
+      reference: verse?.reference || verse_reference || '',
       verseText: verse?.text_kjv || '',
       recipientName: recipient_name,
       dedicatorName: dedicator_name,
       isAnonymous,
       message,
       dedicationNumber: dedication?.dedication_number,
+      // The date the gift was actually given (Stripe's own timestamp),
+      // not the server clock at retry time.
+      date: session.created ? new Date(session.created * 1000) : null,
     });
 
     const bucket = process.env.CERTIFICATE_BUCKET || 'certificates';

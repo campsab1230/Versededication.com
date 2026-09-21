@@ -32,6 +32,7 @@ const samples = {
     isAnonymous: false,
     message: '[OPTIONAL MESSAGE]',
     dedicationNumber: 1,
+    date: '2026-09-21T00:00:00Z',
   },
 
   // Anonymous buyer, long verse, accented recipient name.
