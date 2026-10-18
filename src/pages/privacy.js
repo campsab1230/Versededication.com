@@ -3,7 +3,7 @@ import { CONTACT_EMAIL, SITE_NAME, CHARITY_PERCENT, CHARITY } from '@/lib/site';
 
 export default function Privacy() {
   return (
-    <LegalPage title="Privacy Policy" updated="[SET DATE]">
+    <LegalPage title="Privacy Policy" updated="October 18, 2026">
       <p>
         {SITE_NAME} (&ldquo;we&rdquo;, &ldquo;us&rdquo;) respects your privacy. This policy explains what
         we collect when you use this site and how we use it.
@@ -47,7 +47,7 @@ export default function Privacy() {
         <li><strong>Stripe</strong> — payment processing.</li>
         <li><strong>Supabase</strong> — secure data storage.</li>
         <li><strong>Resend</strong> — email delivery.</li>
-        <li><strong>[HOSTING PROVIDER]</strong> — website hosting.</li>
+        <li><strong>Vercel</strong> — website hosting.</li>
       </ul>
       <p>We do not sell your personal information.</p>
 

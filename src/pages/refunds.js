@@ -3,7 +3,7 @@ import { CONTACT_EMAIL } from '@/lib/site';
 
 export default function Refunds() {
   return (
-    <LegalPage title="Refund Policy" updated="[SET DATE]">
+    <LegalPage title="Refund Policy" updated="October 18, 2026">
       <h2>Digital certificates</h2>
       <p>
         Because a digital certificate is personalized and delivered instantly, it is generally

@@ -3,7 +3,7 @@ import { CONTACT_EMAIL, SITE_NAME, BIBLE_TRANSLATION, CHARITY_PERCENT, CHARITY }
 
 export default function Terms() {
   return (
-    <LegalPage title="Terms of Service" updated="[SET DATE]">
+    <LegalPage title="Terms of Service" updated="October 18, 2026">
       <p>
         These terms govern your use of {SITE_NAME}. By placing an order you agree to them.
       </p>
