@@ -59,7 +59,20 @@ CERTIFICATE_BUCKET=certificates
 `NEXT_PUBLIC_SITE_URL` **must** match the domain you registered the Stripe webhook for, or the
 success/cancel redirects will point at the wrong place.
 
-## 5. Deploy (Vercel example)
+## 5. Deploy to Vercel
+
+Two ways. **Path A is recommended** because it gives you auto-deploy on every push.
+
+### Path A — GitHub → Vercel (recommended)
+
+1. Push this repo to GitHub (see `README.md` for the remote).
+2. vercel.com → **Add New… → Project → Import Git Repository** → pick the repo.
+3. Framework preset auto-detects **Next.js**. Leave Build Command / Output as default.
+4. **Before the first deploy**, open **Environment Variables** and paste every variable from
+   section 4 (Production *and* Preview). Set `NEXT_PUBLIC_SITE_URL=https://versededication.com`.
+5. **Deploy.** Every later `git push` to `main` redeploys automatically.
+
+### Path B — Vercel CLI
 
 ```bash
 npm install -g vercel
@@ -69,8 +82,34 @@ vercel --prod     # deploy to production
 
 Then in Vercel → **Settings → Environment Variables**, add every variable above and redeploy.
 
+> ⚠️ **Deploy only from Linux/macOS/CI.** Do not build this project on Windows — the toolchain
+> ships native binaries that break the serverless bundle.
+
 Other hosts: any platform that runs Next.js API routes works — Netlify (`@netlify/plugin-nextjs`),
 Render, Fly.io, or a Node server with `npm run build && npm start`.
+
+## 5b. Custom domain (versededication.com)
+
+Do this **after** the first successful Vercel deploy, so there is something to point at.
+
+1. Vercel → your project → **Settings → Domains → Add**.
+2. Add **both** `versededication.com` and `www.versededication.com`.
+3. Vercel shows the exact records to create. At your registrar, add:
+
+   | Type | Name | Value |
+   |---|---|---|
+   | `A` | `@` | `76.76.21.21` |
+   | `CNAME` | `www` | `cname.vercel-dns.com` |
+
+   (Use whatever Vercel's screen shows — these are the usual values but Vercel may differ.)
+4. Pick one hostname as canonical and let the other **redirect** to it. Recommended: apex
+   `versededication.com` canonical, `www` → 301 → apex. Set this in Vercel's Domains screen.
+5. Wait for DNS (minutes to a few hours), then confirm Vercel shows **Valid Configuration** and
+   issues the TLS certificate automatically.
+
+**Order matters.** `NEXT_PUBLIC_SITE_URL` and the Stripe webhook URL must both match the canonical
+hostname, or checkout redirects and certificate emails will point at the wrong place. Set the
+canonical host, then update both, then redeploy.
 
 ## 6. Go-live checklist
 
