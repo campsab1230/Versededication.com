@@ -554,3 +554,101 @@ value and compare the tail.
 
 Deliverability note: two TXT records at one DKIM selector make verification undefined, so mail can be
 spam-foldered even while it sends successfully. Deleting the stale key is what fixes that.
+
+**Status 2026-10-19 (re-checked): still two records.** Confirmed from two independent resolvers
+(Cloudflare DoH and Google DoH), so this is not a caching artifact:
+
+| Resolver | Records | Tails |
+|---|---|---|
+| `cloudflare-dns.com/dns-query` | 2 | `...E9Z/pwIDAQAB` (keep), `...VSAqGQ0wIDAQAB` (stale) |
+| `dns.google/resolve` | 2 | same two |
+
+The sandbox **cannot** delete it — no Cloudflare API token is configured for this project. Either
+delete it in the Cloudflare dashboard (DNS → Records → search `resend._domainkey`), or add a
+Cloudflare API token in the Deploy panel and it can be done from here.
+
+---
+
+## 16. Database security audit (2026-10-19)
+
+An unauthenticated audit of the live Supabase project (`oesdrtslwqaycqyxqbqj`) found, and left,
+**one item open**.
+
+### The `dedications` column leak — STILL OPEN at time of writing
+
+RLS filters **rows**, not **columns**. Supabase grants `anon` and `authenticated` a blanket
+`GRANT SELECT ON ALL TABLES` on the public schema, so the existing
+
+```sql
+create policy "Public can read public dedications" on dedications
+  for select using (is_public = true);
+```
+
+only decided *which* dedications are visible. Every column of a visible row stayed readable by
+anyone holding the anon key — which ships in the browser bundle.
+
+Reproduced with a canary row (inserted with the service role, then deleted). Re-run 2026-10-19 and
+still reproducing:
+
+| anon request | observed | expected once fixed |
+|---|---|---|
+| `?select=message` | `200 [{"message":"PROBE-2"}]` | `401 permission denied` |
+| `?select=*` | `200` — full row incl. `order_id`, `certificate_url` | `401` |
+| `?select=recipient_name,dedicator_name,…` (the feed query) | `200` | `200` — unchanged |
+| `verse_dedication_counts` | `200` | `200` — unchanged |
+
+`certificate_url` is the sharp edge: the `certificates` bucket is **public**, so that URL downloads
+the personalised PDF with no auth at all. This directly contradicts `src/pages/privacy.js`, which
+promises only first name / verse reference / recipient name are ever public.
+
+**The fix is committed in this repo** (`db/schema.sql`, regenerated into `db/setup.sql`) — a
+guarded, idempotent `do $$ … $$` block that revokes the blanket grant and re-grants exactly the
+nine feed columns. **It is not live until it is run against the database.** See §17.
+
+Validated in a scratch PostgreSQL 17.11 before shipping: leak reproduced pre-fix, blocked post-fix,
+feed and count view unaffected, and the block is a clean no-op on a database with no `anon` role.
+
+### What the audit cleared
+
+| Check | Result |
+|---|---|
+| `orders` / `verse_requests` anon read | `200 []` — no policy, correctly unreadable |
+| anon INSERT into `verses` | `401` `42501` RLS violation |
+| anon DELETE / PATCH on `verses` | `204` **with no effect** |
+| anon key in the client bundle | absent — 0 matches in shipped JS; every anon query is server-side in `getStaticProps` |
+
+⚠️ **`204` on a DELETE is the trap in this table.** It reads like success and means the opposite:
+*0 rows matched the RLS filter*. Proven with a canary row that survived the request.
+
+## 17. Running SQL against the live database
+
+There is no DDL path through PostgREST (`/rest/v1/rpc/…` → `404`), so schema changes go in by hand.
+
+**Normal way — Supabase SQL Editor.** Dashboard → project → SQL Editor → paste → Run. Expect
+`Success. No rows returned` for a permissions-only change.
+
+**Fastest verification** (proves the grant took, without exposing anything):
+
+```sql
+set role anon;
+select * from dedications;               -- must now FAIL: permission denied
+select recipient_name from dedications;  -- must SUCCEED
+reset role;
+```
+
+**Or directly from this sandbox.** The sandbox *can* reach the Supabase pooler:
+
+```
+host=aws-0-ca-central-1.pooler.supabase.com  port=6543  dbname=postgres
+user=postgres.oesdrtslwqaycqyxqbqj           sslmode=require
+```
+
+How the region was found, if it is ever unclear: connect with a junk password. The tenant check
+runs *before* authentication, so the wrong region answers
+`(ENOTFOUND) tenant/user postgres.<ref> not found` while the right one answers
+`password authentication failed`. Control-tested with two impossible refs, which correctly returned
+`tenant … not found` — so the distinction is real and not a connection artifact.
+
+Note `db.<ref>.supabase.co:5432` is **not** reachable from the sandbox; use the pooler. Applying SQL
+this way needs the database password, which is not in this repo and must not be committed — the SQL
+Editor avoids that entirely, so prefer it.
