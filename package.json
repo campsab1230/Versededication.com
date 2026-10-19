@@ -7,7 +7,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:sql": "node scripts/check-sql-columns.mjs",
+    "db:fix-verses": "node scripts/check-sql-columns.mjs db/fix-verse-text.sql"
   },
   "engines": {
     "node": ">=18.17.0"

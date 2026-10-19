@@ -940,3 +940,77 @@ IMPORTANT — editing the seed does NOT change the running site. `seed.sql` is
 idempotent (`on conflict do nothing`), so already-inserted rows are untouched.
 The live rows must be updated separately with the generated
 `UPDATE verses SET text_kjv = ... WHERE reference = ...` statements.
+
+---
+
+## 21. INCIDENT — a generated SQL file referenced a non-existent column (2026-10-19)
+
+### What happened
+
+The 26-statement verse fix was generated with `updated_at = now()`. Pasted into
+the Supabase SQL Editor it failed immediately:
+
+```
+42703: column "updated_at" of relation "verses" does not exist
+```
+
+`updated_at` exists on `dedications` (which has a `touch_updated_at` trigger)
+but **`verses` has only `created_at`**. The pattern was copy-pasted from the
+dedications table without checking `verses`. The customer found this, not a test.
+
+Corrected file: `db/fix-verse-text.sql`, now sourced **verbatim from
+`db/seed.sql`** rather than from a scratch JSON, and carrying a comment
+recording the trap.
+
+### Why it escaped
+
+Nothing validated generated SQL against the real column list. The audit that
+produced the 26 texts verified *content*, never *schema*.
+
+### Guards added
+
+1. **`scripts/check-sql-columns.mjs`** (`npm run check:sql`) — parses every
+   `insert into t (cols)` and `update t set col = ...` out of the `db/*.sql`
+   files and asserts each column exists. Column source is the live schema;
+   falls back to `db/schema.sql`. Proven both ways: on the broken SQL it exits
+   **1** with 26 bad refs; on the fixed SQL it exits **0**.
+   NOTE: the live-OpenAPI path currently 401s (the browser-format `sb_publishab…`
+   key is not accepted for `/rest/v1/` introspection). It therefore falls back
+   to `schema.sql` — acceptable only because `schema.sql` was independently
+   confirmed to match the live columns (see below).
+2. **Real-Postgres regression test** — the live table shape was recreated on
+   scratch Postgres 17, seeded with the *old* values, and both SQL versions
+   executed. Old → exit 3 with the same 42703; new → exit 0, `...` rows
+   4 → 0, `Psalm 23:1-4` 127 → 356 chars, and idempotent on a second run.
+
+### Read-only capability probe (replaces the destructive canary)
+
+Asking `?select=<col>` as anon and reading only the status code proves whether a
+column is still readable, with **zero writes to production**:
+
+| probe | result |
+|---|---|
+| `dedications?select=message` | **200** → still readable |
+| `...select=certificate_url` | **200** → still readable |
+| `...select=order_id` | **200** → still readable |
+| `...select=nonexistent_col` (control) | **400** `42703` |
+| `no_such_table?select=id` (control) | **404** `PGRST205` |
+
+The controls are what make this meaningful: 200 is not a catch-all, because a
+bad column yields 400 and a bad table yields 404. So **the column-privilege fix
+is confirmed NOT applied**, without writing a canary row.
+
+### Current row count (service role, `Prefer: count=exact`)
+
+`dedications` = **0 rows**. The vulnerability is structurally open but
+currently carries **no customer data to leak** — which is the best possible
+time to close it.
+
+### Adjacent finding — `orders` protection is one policy away from failure
+
+`orders` returns **200 with 0 rows** to anon. It is protected *solely* by the
+absence of a SELECT policy (RLS deny-all), while anon still holds a blanket
+SELECT **grant** on the table. That is the same grant pattern that exposed
+`dedications`. `orders` holds `email`, `shipping_name`, `shipping_address`,
+`stripe_payment_intent_id`. Recommend applying the same column-scoped `grant`/
+`revoke` treatment to `orders` as defence in depth.
