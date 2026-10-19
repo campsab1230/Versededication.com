@@ -25,7 +25,7 @@ export async function sendCertificateEmail({
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — skipping certificate email to', to);
-    return { skipped: true };
+    return { skipped: true, reason: 'not_configured' };
   }
   if (!to) {
     console.warn('[email] No recipient email on order — skipping certificate email.');
@@ -99,7 +99,7 @@ export async function sendVerseRequestEmail({ to, reference, requesterName, admi
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — skipping verse-request email for', reference);
-    return { skipped: true };
+    return { skipped: true, reason: 'not_configured' };
   }
 
   const safeRef = escapeHtml(reference);
@@ -162,7 +162,29 @@ export async function sendVerseRequestEmail({ to, reference, requesterName, admi
     results.admin = { skipped: true, reason: 'no admin address' };
   }
 
-  return { ok: !!(results.requester?.ok || results.admin?.ok), ...results };
+  const ok = !!(results.requester?.ok || results.admin?.ok);
+  // A bare `ok:false` cannot tell "Resend is not configured" apart from
+  // "Resend rejected the send". Callers log this, so failures are diagnosable.
+  return { ok, reason: ok ? null : describeFailure(results), ...results };
+}
+
+// Collapse the per-recipient attempts into one short machine-readable reason.
+function describeFailure(results) {
+  const attempts = [results.requester, results.admin].filter((r) => r && !r.skipped);
+
+  if (!attempts.length) {
+    const reasons = [results.requester?.reason, results.admin?.reason].filter(Boolean);
+    if (reasons.includes('missing api key')) return 'not_configured';
+    return 'no_recipient';
+  }
+
+  const failed = attempts.find((r) => !r.ok);
+  if (!failed) return 'unknown';
+  // 403 from Resend almost always means the sending domain is not verified yet.
+  if (failed.status === 403) return 'domain_not_verified';
+  if (failed.status) return `resend_http_${failed.status}`;
+  if (failed.error) return 'network_error';
+  return 'unknown';
 }
 
 // Shared POST to Resend. Never throws — returns { ok } / { ok:false, status }.

@@ -434,3 +434,36 @@ curl -s -X POST https://www.versededication.com/api/verse-request \
 ```
 
 If it still says `false`, the value is in the Vercel function log for that invocation.
+
+### Why `emailed:false` was undiagnosable — now FIXED
+
+`sendVerseRequestEmail` returns `ok:false` for several different causes (no API key, unverified sending
+domain, bad key, network). The endpoint reported all of them as a bare `emailed:false`, so a silent mail
+outage looked identical to "Resend is not configured".
+
+`src/pages/api/verse-request.js` now also returns **`emailReason`** (null when the mail was sent):
+
+| value | meaning |
+|---|---|
+| `not_configured` | `RESEND_API_KEY` is empty in the Vercel environment |
+| `domain_not_verified` | Resend returned **403** — the sending domain is not verified yet. This is the usual cause right after adding a domain. |
+| `resend_http_<code>` | Resend rejected the send with that status |
+| `no_recipient` | no requester email and no admin address to notify |
+| `network_error` | the fetch to Resend threw |
+| `threw` | an unexpected exception in the endpoint |
+
+A failure also writes `[verse-request] email not sent: <reason>` to the Vercel function log.
+
+**Check it with:**
+
+```bash
+curl -s -X POST https://www.versededication.com/api/verse-request \
+  -H 'Content-Type: application/json' \
+  -d '{"reference":"Test 1:1","requester_name":"Me","requester_email":"delivered@resend.dev"}'
+# emailed:true                      -> working
+# emailReason:"domain_not_verified" -> click Verify DNS Records in Resend
+# emailReason:"not_configured"      -> RESEND_API_KEY is missing in Vercel
+```
+
+Verified locally: `/api/verse-request` returns `emailReason:"not_configured"` when the key is empty, and
+405 / 400 / 400 / 400 for the GET, empty-body, pasted-paragraph and bad-email cases.

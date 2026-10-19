@@ -106,7 +106,10 @@ export default async function handler(req, res) {
 
     // Email is a courtesy, never a blocker: if Resend is unconfigured the
     // request is still stored and the visitor still sees the confirmation.
+    // We do report WHY it did not send, so a silent mail outage is visible
+    // both in the function log and in the response.
     let emailed = false;
+    let emailReason = null;
     try {
       const result = await sendVerseRequestEmail({
         to: requester_email,
@@ -115,7 +118,10 @@ export default async function handler(req, res) {
         adminTo: CONTACT_EMAIL,
       });
       emailed = !!result?.ok;
+      emailReason = emailed ? null : result?.reason || 'unknown';
+      if (!emailed) console.error('[verse-request] email not sent:', emailReason);
     } catch (err) {
+      emailReason = 'threw';
       console.error('[verse-request] email failed:', err?.message || err);
     }
 
@@ -123,6 +129,9 @@ export default async function handler(req, res) {
       ok: true,
       id: data?.id,
       emailed,
+      // Null when sent. Values: not_configured | domain_not_verified |
+      // no_recipient | resend_http_<code> | network_error | threw | unknown
+      emailReason,
       // The promise we make in the UI, returned so copy and behaviour agree.
       eta: 'within 24 hours',
     });
