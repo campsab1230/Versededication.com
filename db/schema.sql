@@ -181,6 +181,53 @@ drop policy if exists "Public can read public dedications" on dedications;
 create policy "Public can read public dedications" on dedications
   for select using (is_public = true);
 
+-- ---------------------------------------------------------------------------
+-- ⚠️  COLUMN-LEVEL PRIVILEGES ON dedications — do not remove.
+--
+-- RLS filters ROWS, not COLUMNS. Supabase grants `anon` and `authenticated`
+-- a blanket `GRANT SELECT ON ALL TABLES`, so the policy above only decides
+-- *which* dedications are visible — every column of a visible row is still
+-- readable by anyone holding the public anon key (which ships in the browser
+-- bundle). Before this block, a single unauthenticated request:
+--
+--   GET /rest/v1/dedications?select=*&is_public=eq.true
+--
+-- returned the private `message` ("My private note to Sarah..."), the
+-- `certificate_url` of the personalised PDF (the `certificates` bucket is
+-- public, so that URL downloads without auth), and the internal `order_id`.
+-- That contradicts src/pages/privacy.js, which promises only first name /
+-- verse reference / recipient name are ever public.
+--
+-- The public feed (src/lib/verseData.js: fetchRecentFeed) selects exactly the
+-- columns kept below, so it keeps working untouched. service_role bypasses
+-- these grants entirely, so the server is unaffected.
+--
+-- The `if exists (pg_roles)` guard keeps this file runnable on a plain
+-- Postgres instance that has no Supabase roles defined (it becomes a no-op).
+-- Safe to run repeatedly.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke select on table dedications from anon;
+    grant select (
+      id, verse_id, dedicator_name, is_anonymous, recipient_name,
+      dedication_number, is_public, created_at, updated_at
+    ) on dedications to anon;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke select on table dedications from authenticated;
+    grant select (
+      id, verse_id, dedicator_name, is_anonymous, recipient_name,
+      dedication_number, is_public, created_at, updated_at
+    ) on dedications to authenticated;
+  end if;
+end $$;
+
+-- Withheld from anon/authenticated: order_id, message, certificate_url,
+-- email_sent_at.
+
 -- No select policy on orders — intentionally service-role only.
 
 -- ============================
