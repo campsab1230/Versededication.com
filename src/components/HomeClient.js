@@ -18,6 +18,10 @@ const FAQ_ITEMS = [
     a: 'Digital certificates are emailed within a minute of checkout. Heirloom certificates are printed and ship within 3–5 business days.',
   },
   { q: 'Can I send this anonymously?', a: 'Yes — just leave the "Your name" field blank.' },
+  {
+    q: "What if the verse I want isn't listed?",
+    a: 'Request it. Tell us the reference and, if you like, your email — we add requested verses within 24 hours and will email you the moment it is ready to dedicate.',
+  },
   { q: 'Will my dedication appear publicly?', a: 'Only if you tick "Show my dedication in the public feed." Untick it and the dedication stays private.' },
   {
     q: 'Does any of this go to charity?',
@@ -25,7 +29,13 @@ const FAQ_ITEMS = [
   },
 ];
 
-export default function HomeClient({ verses, themes, feedItems, justDedicated }) {
+export default function HomeClient({
+  verses,
+  themes,
+  feedItems,
+  justDedicated,
+  dataUnavailable = false,
+}) {
   const router = useRouter();
   const [activeThemeId, setActiveThemeId] = useState('all');
   const [search, setSearch] = useState('');
@@ -52,6 +62,67 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
   const [recipientError, setRecipientError] = useState('');
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // ---- Verse request ("we don't carry this one yet") ----
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestRef, setRequestRef] = useState('');
+  const [requestName, setRequestName] = useState('');
+  const [requestEmail, setRequestEmail] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+  const [requestError, setRequestError] = useState('');
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [requestDone, setRequestDone] = useState(false);
+
+  function openRequest(prefill) {
+    setRequestRef(typeof prefill === 'string' ? prefill : '');
+    setRequestName('');
+    setRequestEmail('');
+    setRequestNote('');
+    setRequestError('');
+    setRequestDone(false);
+    setRequestBusy(false);
+    setRequestOpen(true);
+  }
+
+  async function submitRequest() {
+    if (requestRef.trim().length < 2) {
+      setRequestError('Tell us which verse you are looking for.');
+      return;
+    }
+    setRequestError('');
+    setRequestBusy(true);
+    try {
+      const res = await fetch('/api/verse-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference: requestRef.trim(),
+          requester_name: requestName.trim(),
+          requester_email: requestEmail.trim(),
+          note: requestNote.trim(),
+        }),
+      });
+
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setRequestBusy(false);
+        setRequestError(data?.error || 'We could not send that. Please try again.');
+        return;
+      }
+      setRequestBusy(false);
+      setRequestDone(true);
+    } catch (err) {
+      console.error(err);
+      setRequestBusy(false);
+      setRequestError('Network error. Please check your connection and try again.');
+    }
+  }
 
   const filteredVerses = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -248,13 +319,33 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
               </div>
             ))}
             {filteredVerses.length === 0 && (
-              <p className="empty-state">
-                {search.trim()
-                  ? `No verses match “${search.trim()}”. Try another word.`
-                  : 'No verses in this theme yet — try another.'}
-              </p>
+              <div className="empty-state">
+                <p>
+                  {dataUnavailable
+                    ? 'The verse library is temporarily unavailable — we are on it. You can still request a verse and we will add it within 24 hours.'
+                    : search.trim()
+                      ? `No verses match “${search.trim()}” yet.`
+                      : 'No verses in this theme yet.'}
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => openRequest(search.trim())}
+                >
+                  Request this verse
+                </button>
+                <span className="empty-eta">Added within 24 hours</span>
+              </div>
             )}
           </div>
+
+          <p className="request-inline">
+            Looking for a verse we don&rsquo;t carry?{' '}
+            <button type="button" className="link-btn" onClick={() => openRequest('')}>
+              Request it
+            </button>{' '}
+            — requested verses are added within 24 hours.
+          </p>
         </div>
       </section>
 
@@ -498,6 +589,124 @@ export default function HomeClient({ verses, themes, feedItems, justDedicated })
           >
             {submitting ? 'Redirecting to checkout…' : 'Continue to checkout'}
           </button>
+        </Modal>
+      )}
+
+      {requestOpen && (
+        <Modal onClose={() => setRequestOpen(false)} labelledBy="request-modal-title">
+          <button className="modal-close" onClick={() => setRequestOpen(false)} aria-label="Close">
+            &times;
+          </button>
+
+          {requestDone ? (
+            <div className="request-done" role="status">
+              <div className="request-tick" aria-hidden="true">
+                &#10003;
+              </div>
+              <h2 id="request-modal-title">Request received</h2>
+              <p>
+                We&rsquo;re adding <b>{requestRef.trim() || 'that verse'}</b> to the collection.
+              </p>
+              <p className="request-eta">
+                It will be available <b>within 24 hours</b>.
+              </p>
+              {requestEmail.trim() ? (
+                <p className="request-note">
+                  We&rsquo;ll email <b>{requestEmail.trim()}</b> the moment it&rsquo;s ready to
+                  dedicate.
+                </p>
+              ) : (
+                <p className="request-note">
+                  Check back in 24 hours — or add your email next time and we&rsquo;ll tell you.
+                </p>
+              )}
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => setRequestOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          ) : (
+            <>
+              <h2 id="request-modal-title">Request a verse</h2>
+              <p className="request-lead">
+                Can&rsquo;t find the verse you&rsquo;re after? Tell us which one, and we&rsquo;ll add
+                it to the collection.
+              </p>
+              <p className="request-promise">
+                Requested verses are added <b>within 24 hours</b>.
+              </p>
+
+              <div className={`field ${requestError ? 'invalid' : ''}`}>
+                <label htmlFor="request-ref">Which verse?</label>
+                <input
+                  id="request-ref"
+                  type="text"
+                  placeholder="e.g. Psalm 34:18"
+                  value={requestRef}
+                  aria-invalid={!!requestError}
+                  onChange={(e) => {
+                    setRequestRef(e.target.value);
+                    if (requestError) setRequestError('');
+                  }}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="request-name">Your name (optional)</label>
+                <input
+                  id="request-name"
+                  type="text"
+                  placeholder="e.g. Ty"
+                  value={requestName}
+                  onChange={(e) => setRequestName(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="request-email">
+                  Email (optional — so we can tell you when it&rsquo;s ready)
+                </label>
+                <input
+                  id="request-email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={requestEmail}
+                  onChange={(e) => setRequestEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <div className="field-row">
+                  <label htmlFor="request-note">Anything else? (optional)</label>
+                  <span className="char-count">{requestNote.length}/400</span>
+                </div>
+                <textarea
+                  id="request-note"
+                  maxLength={400}
+                  placeholder="Why this verse, or who it's for"
+                  value={requestNote}
+                  onChange={(e) => setRequestNote(e.target.value)}
+                />
+              </div>
+
+              {requestError && <div className="form-error">{requestError}</div>}
+
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={submitRequest}
+                disabled={requestBusy}
+              >
+                {requestBusy ? 'Sending…' : 'Request this verse'}
+              </button>
+              <p className="request-foot">King James Version · added within 24 hours</p>
+            </>
+          )}
         </Modal>
       )}
     </>

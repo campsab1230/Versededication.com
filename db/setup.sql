@@ -193,6 +193,47 @@ create policy "Public can read public dedications" on dedications
 
 -- No select policy on orders — intentionally service-role only.
 
+-- ============================
+-- VERSE REQUESTS
+-- A visitor asks for a verse we do not carry yet. We promise it within 24h.
+--
+-- PRIVACY: this table holds a requester's name and email, so there is NO
+-- public read policy. It is written and read only by the server through the
+-- service role (which bypasses RLS). Adding a public SELECT here would leak
+-- every requester's email address.
+-- ============================
+create table if not exists verse_requests (
+  id uuid primary key default gen_random_uuid(),
+  reference text not null
+    check (char_length(trim(reference)) between 2 and 120),
+  requester_name text
+    check (requester_name is null or char_length(requester_name) <= 80),
+  requester_email text
+    check (requester_email is null or char_length(requester_email) <= 160),
+  note text
+    check (note is null or char_length(note) <= 400),
+  status text not null default 'pending'
+    check (status in ('pending','added','declined')),
+  -- Set when an admin adds the verse, so we can close the loop with the requester.
+  resolved_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists idx_verse_requests_created on verse_requests (created_at desc);
+create index if not exists idx_verse_requests_status on verse_requests (status, created_at desc);
+-- Light dedupe help: the same reference requested repeatedly is one row per ask,
+-- but this index makes "how many people asked for X" cheap.
+create index if not exists idx_verse_requests_reference on verse_requests (lower(reference));
+
+alter table verse_requests enable row level security;
+
+drop trigger if exists trg_verse_requests_updated_at on verse_requests;
+create trigger trg_verse_requests_updated_at
+before update on verse_requests for each row execute function touch_updated_at();
+
+-- No policies on purpose: service-role only (see PRIVACY note above).
+
 
 -- ============================================================
 -- VERSE DEDICATION — seed data (themes + 45 verses + theme links)

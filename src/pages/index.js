@@ -3,7 +3,7 @@ import HomeClient from '@/components/HomeClient';
 import { fetchThemes, fetchVersesWithMeta, fetchRecentFeed } from '@/lib/verseData';
 import { SITE_NAME, SITE_DESCRIPTION, siteUrl } from '@/lib/site';
 
-export default function Home({ verses, themes, feedItems, justDedicated }) {
+export default function Home({ verses, themes, feedItems, justDedicated, dataUnavailable }) {
   const title = `${SITE_NAME} — Dedicate a Bible Verse`;
   const shareImage = `${siteUrl()}/og-image.png`;
   return (
@@ -43,18 +43,35 @@ export async function getStaticProps() {
   let verses = [];
   let themes = [];
   let feedItems = [];
+  // True when the verse library itself could not be read. The page still
+  // renders (the build must never fail on a database blip) but it says so
+  // instead of showing a cheerful empty grid — which is what previously
+  // disguised a total outage as "no data yet".
+  let dataUnavailable = false;
 
   try {
     themes = await fetchThemes();
+  } catch (err) {
+    console.error('[home] themes fetch failed:', err?.message || err);
+    dataUnavailable = true;
+  }
+
+  try {
     verses = await fetchVersesWithMeta();
+  } catch (err) {
+    console.error('[home] verses fetch failed:', err?.message || err);
+    dataUnavailable = true;
+  }
+
+  // The feed is decorative — its failure must not mark the library unavailable.
+  try {
     feedItems = await fetchRecentFeed(6);
   } catch (err) {
-    // Build must not fail when env vars / tables are not ready yet.
-    console.error('[home] data fetch failed:', err?.message || err);
+    console.error('[home] feed fetch failed:', err?.message || err);
   }
 
   return {
-    props: { verses, themes, feedItems },
+    props: { verses, themes, feedItems, dataUnavailable },
     revalidate: 60,
   };
 }

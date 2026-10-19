@@ -337,6 +337,82 @@ a {
   text-align: center;
   color: var(--ink-soft);
   padding: 40px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.empty-state p {
+  margin: 0;
+  max-width: 46ch;
+}
+.empty-eta {
+  font-size: 12.5px;
+  color: var(--gold-text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---------- Verse request ---------- */
+.request-inline {
+  text-align: center;
+  margin: 26px 0 0;
+  font-size: 14.5px;
+  color: var(--ink-soft);
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--gold-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link-btn:hover {
+  color: var(--gold);
+}
+.request-lead {
+  color: var(--ink-soft);
+  margin: 0 0 10px;
+}
+.request-promise {
+  background: var(--cream);
+  border-left: 2px solid var(--gold);
+  padding: 12px 16px;
+  margin: 0 0 22px;
+  font-size: 14.5px;
+}
+.request-foot {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin: 14px 0 0;
+}
+.request-done {
+  text-align: center;
+}
+.request-tick {
+  width: 52px;
+  height: 52px;
+  line-height: 52px;
+  border-radius: 50%;
+  margin: 4px auto 18px;
+  background: var(--gold);
+  color: #1a1508;
+  font-size: 26px;
+  font-weight: 700;
+}
+.request-eta {
+  font-size: 17px;
+  color: var(--gold-text);
+  margin: 14px 0;
+}
+.request-note {
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  margin: 0 0 24px;
 }
 
 /* ---------- Tiers ---------- */
