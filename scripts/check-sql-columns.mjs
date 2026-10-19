@@ -60,20 +60,36 @@ function columnsFromSchemaSql() {
   return map
 }
 
+/** Minimal .env.local reader so `npm run check:sql` works without exporting. */
+function loadEnvLocal() {
+  const p = join(ROOT, '.env.local')
+  if (!existsSync(p)) return
+  for (const line of readFileSync(p, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/)
+    if (!m) continue
+    const val = m[2].trim().replace(/^["']|["']$/g, '')
+    if (!(m[1] in process.env)) process.env[m[1]] = val
+  }
+}
+
 async function columnsFromLive() {
-  const url = process.env.SUPABASE_URL || 'https://oesdrtslwqaycqyxqbqj.supabase.co'
-  const key = process.env.SUPABASE_ANON_KEY
-  if (!key) throw new Error('SUPABASE_ANON_KEY not set')
-  const res = await fetch(`${url}/rest/v1/`, {
+  loadEnvLocal()
+  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!url) throw new Error('NEXT_PUBLIC_SUPABASE_URL not set')
+  // service_role is required: the browser-format `sb_publishab…` anon key is
+  // rejected (401) by the /rest/v1/ introspection endpoint.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY not set')
+  const res = await fetch(`${url.replace(/\/$/, '')}/rest/v1/`, {
     headers: { apikey: key, authorization: `Bearer ${key}` },
   })
-  if (!res.ok) throw new Error(`OpenAPI fetch failed: ${res.status}`)
+  if (!res.ok) throw new Error(`OpenAPI fetch failed: HTTP ${res.status}`)
   const spec = await res.json()
   const map = {}
   for (const [name, def] of Object.entries(spec.definitions || spec.components?.schemas || {})) {
-    const props = def.properties || {}
-    map[name] = Object.keys(props)
+    map[name] = Object.keys(def.properties || {})
   }
+  if (!Object.keys(map).length) throw new Error('OpenAPI spec contained no tables')
   return map
 }
 
