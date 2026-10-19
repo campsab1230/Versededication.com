@@ -303,12 +303,10 @@ certificate.
 1. **Legal page placeholders.** `src/pages/contact.js` still has `[YOUR LEGAL / BUSINESS NAME]`,
    `[MAILING ADDRESS…]`, `[STATE / COUNTRY OF REGISTRATION]`. Many payment providers and consumer
    laws require this. Everything else is filled in.
-2. **`versededication.com` DNS** — the zone is live on Cloudflare's nameservers
-   (`apollo.ns.cloudflare.com`, `veronica.ns.cloudflare.com`) but holds **no A, AAAA, CNAME or MX
-   records**. Apex and `www` both resolve to nothing, so the domain never reaches Vercel. See
-   §14 for the exact records to add. Note: `dig` does **not** work in this sandbox — it returns
-   empty for `google.com` too. Use the HTTPS lookup in §14 instead, or you will get false
-   "no DNS" readings.
+2. ~~**`versededication.com` DNS**~~ — **DONE (2026-10-19).** `www` serves 200 via Vercel behind
+   Cloudflare; apex 308-redirects to `https://www.versededication.com/`. See §14 for the live config.
+   Note: `dig` does **not** work in this sandbox — it returns empty for `google.com` too. Use the
+   HTTPS lookup in §14, or you will get false "no DNS" readings (this produced a wrong answer once).
 3. **Three Vercel env vars** if not yet set: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`.
 4. **Rotate the Supabase service-role key** (§9).
 
@@ -377,9 +375,62 @@ curl -s -H 'accept: application/dns-json' \
 curl -sI https://versededication.com | head -1
 ```
 
-### Still to do after the site resolves
+### Live configuration (verified 2026-10-19)
 
-`EMAIL_FROM` is `certificates@versededication.com`, so **Resend** needs its own DNS records
-(DKIM `TXT`, SPF `TXT`, `MX`) on a subdomain — added in this same Cloudflare panel. Until that domain
-is verified in Resend, `sendCertificateEmail` / `sendVerseRequestEmail` return `{ skipped: true }` and
-mail is silently not sent. The code is written to survive that (orders and requests are still recorded).
+| Type | Name | Value | Proxy |
+|---|---|---|---|
+| `CNAME` | `@` | `cc935033ed9ba5b5.vercel-dns-017.com` | Proxied (orange) |
+| `CNAME` | `www` | `cc935033ed9ba5b5.vercel-dns-017.com` | Proxied (orange) |
+
+Both records use a **CNAME at the apex**, which Cloudflare flattens — Vercel's A-record method was not
+used, and that is fine. The orange proxy is **on and working**: Cloudflare terminates TLS at the edge
+(Let's Encrypt cert, `CN=versededication.com`) and passes through to Vercel (`x-vercel-cache: STALE`,
+`x-vercel-id` present).
+
+Verified working over the real domain: homepage 200 with **45 verse links**, **0** empty-state hits,
+`/verse/psalm-23-1-4` → 200, `sitemap.xml` canonical `https://versededication.com`.
+
+The proxy-off advice above was the safe default for first-time verification. It has already verified,
+so leave the proxy on. If Vercel ever shows "Invalid Configuration" for the domain, the proxy is the
+first thing to toggle while re-verifying.
+
+---
+
+## 15. Resend (outbound email)
+
+Both `sendCertificateEmail` and `sendVerseRequestEmail` send through Resend, and both return
+`{ skipped: true }` / `{ ok: false }` rather than throwing, so **a broken mail config fails silently** —
+orders and verse requests are still recorded, but no email arrives.
+
+As of 2026-10-19 the live `POST /api/verse-request` returns `emailed: false`, so mail is **not** going
+out yet. `RESEND_API_KEY` exists in Vercel, so the likely blocker is that the sending domain is not
+verified — `EMAIL_FROM` is `certificates@versededication.com`.
+
+### Fix
+
+1. Resend → **Domains** → **Add Domain** → `versededication.com`.
+2. Either click **Sign in to Cloudflare** (Domain Connect adds the records automatically), or add them
+   by hand in Cloudflare → **DNS → Records**:
+
+   | Type | Name | Content | Priority | Proxy |
+   |---|---|---|---|---|
+   | `MX` | `send` | `feedback-smtp.<region>.amazonses.com` | `10` | DNS only |
+   | `TXT` | `send` | `v=spf1 include:amazonses.com ~all` | — | DNS only |
+   | `TXT` | `resend._domainkey` | `p=…` (long DKIM key) | — | DNS only |
+
+   **Copy the exact values from Resend.** The region in the MX host varies per account.
+3. **Every one of these must be DNS only (grey cloud).** A proxied record makes Resend's check fail;
+   Cloudflare returns error `1004` for a proxied CNAME.
+4. Resend → **Verify DNS Records**. Often minutes, officially up to 72h.
+5. Optional: toggle **Receiving** on if mail to the domain should be accepted (adds an `inbound` MX).
+
+### Then check
+
+```bash
+curl -s -X POST https://www.versededication.com/api/verse-request \
+  -H 'Content-Type: application/json' \
+  -d '{"reference":"Test 1:1","requester_name":"Me","requester_email":"you@example.com"}'
+# want emailed:true
+```
+
+If it still says `false`, the value is in the Vercel function log for that invocation.
