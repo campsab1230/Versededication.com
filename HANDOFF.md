@@ -334,33 +334,41 @@ rate limiting, and a keep-alive so the Supabase project cannot idle-pause.
 The domain's nameservers are **Cloudflare** (`apollo.ns.cloudflare.com`, `veronica.ns.cloudflare.com`),
 so all records below are added in the **Cloudflare dashboard**, not at the registrar.
 
-### Records
+### Working configuration (verified live)
 
-| Type | Name (Cloudflare) | Value | Proxy |
+| Type | Name | Value | Proxy |
 |---|---|---|---|
-| `A` | `@` | **read it from your Vercel domain card** — commonly `76.76.21.21`, but newer projects get an anycast IP such as `216.198.79.1` | **DNS only** (grey cloud) |
-| `CNAME` | `www` | the CNAME target on the same card (often `cname.vercel-dns.com`) | **DNS only** (grey cloud) |
+| `CNAME` | `@` | `cc935033ed9ba5b5.vercel-dns-017.com` | **Proxied** (orange) |
+| `CNAME` | `www` | `cc935033ed9ba5b5.vercel-dns-017.com` | **Proxied** (orange) |
 
-The domain card is the source of truth. Vercel verifies the **exact** value it expects, so an IP copied
-from a guide rather than the card leaves the domain stuck on "Invalid Configuration".
+This is what is actually deployed and verified: **CNAME at the apex**, Cloudflare-flattened, with the
+orange proxy **on**. Cloudflare terminates TLS at the edge (Let's Encrypt, `CN=versededication.com`) and
+passes through to Vercel — responses carry `x-vercel-cache` and `x-vercel-id`.
+
+Do **not** pre-emptively switch the proxy off. It works, and it is the configuration to keep.
 
 ### Order
 
 1. Vercel → project → **Settings → Domains** → add `versededication.com` *and* `www.versededication.com`.
-2. Note the A value + CNAME target shown on the cards.
+2. Copy the **CNAME target** from the domain card.
 3. Cloudflare → **DNS → Records** → add both rows above.
-4. Cloudflare → **SSL/TLS → Overview** → set mode to **Full**.
+4. The apex 308-redirects to `https://www.versededication.com/` once `www` is the primary domain.
+
+### Alternative: the A-record recipe
+
+Most guides (and Vercel's own KB) describe `A @ → 76.76.21.21` plus a `www` CNAME, proxy off. That also
+works — it is simply **not** what was done here, so do not "correct" the working zone to match it. If you
+do use it, the domain card's IP is the source of truth, not the IP printed in any guide.
 
 ### Gotchas that actually bite
 
-- **Orange cloud must be off** (grey / "DNS only") while Vercel verifies, or verification and the
-  Let's Encrypt HTTP-01 challenge both fail. Re-enable the proxy afterwards if you want it.
-- **No AAAA records** on the apex. Vercel does not support IPv6 for third-party-DNS custom domains,
-  and an AAAA splits traffic so the certificate challenge lands elsewhere.
-- **Flexible SSL** causes `err_too_many_redirects`. Use Full.
-- Stuck on "Invalid Configuration" after the records are correct? Remove the domain from the project
-  and add it again to reset the check.
+- **No AAAA records** on the apex. Vercel does not support IPv6 for third-party-DNS custom domains, and
+  an AAAA splits traffic so the certificate challenge lands elsewhere.
+- **Flexible SSL** causes `err_too_many_redirects`. Use **Full**.
 - A `CAA` record that omits Let's Encrypt blocks issuance.
+- Stuck on "Invalid Configuration" with apparently-correct records? Remove the domain from the project
+  and re-add it to reset the check. If the proxy is on, toggle that record to DNS-only while Vercel
+  re-verifies, then turn it back on.
 
 ### Checking it, given `dig` is broken here
 
@@ -375,24 +383,10 @@ curl -s -H 'accept: application/dns-json' \
 curl -sI https://versededication.com | head -1
 ```
 
-### Live configuration (verified 2026-10-19)
+### Verified working over the real domain (2026-10-19)
 
-| Type | Name | Value | Proxy |
-|---|---|---|---|
-| `CNAME` | `@` | `cc935033ed9ba5b5.vercel-dns-017.com` | Proxied (orange) |
-| `CNAME` | `www` | `cc935033ed9ba5b5.vercel-dns-017.com` | Proxied (orange) |
-
-Both records use a **CNAME at the apex**, which Cloudflare flattens — Vercel's A-record method was not
-used, and that is fine. The orange proxy is **on and working**: Cloudflare terminates TLS at the edge
-(Let's Encrypt cert, `CN=versededication.com`) and passes through to Vercel (`x-vercel-cache: STALE`,
-`x-vercel-id` present).
-
-Verified working over the real domain: homepage 200 with **45 verse links**, **0** empty-state hits,
-`/verse/psalm-23-1-4` → 200, `sitemap.xml` canonical `https://versededication.com`.
-
-The proxy-off advice above was the safe default for first-time verification. It has already verified,
-so leave the proxy on. If Vercel ever shows "Invalid Configuration" for the domain, the proxy is the
-first thing to toggle while re-verifying.
+Homepage 200 with **45 verse links**, **0** empty-state hits, `/verse/psalm-23-1-4` → 200, and
+`sitemap.xml` canonical `https://versededication.com`.
 
 ---
 
