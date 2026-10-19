@@ -28,8 +28,23 @@ Node serverless functions (Vercel is the smoothest; Netlify / Render / a Node VP
 2. **Developers → API keys**: copy the Secret key (`sk_test_…`).
 3. **Developers → Webhooks → Add endpoint**:
    - Endpoint URL: `https://YOUR-DOMAIN/api/stripe-webhook`
-   - Events: `checkout.session.completed`
+   - Events: **both** of these —
+     - `checkout.session.completed`
+     - `checkout.session.async_payment_succeeded`
    - Copy the **Signing secret** (`whsec_…`).
+
+   ⚠️ **Subscribe to both, or you can silently lose an order.** The handler skips
+   fulfillment when `payment_status === 'unpaid'`, which is what
+   `checkout.session.completed` carries for *delayed* payment methods (bank debits, ACH). Those
+   orders are fulfilled later by `checkout.session.async_payment_succeeded`. If that second event
+   is not subscribed, the customer is charged and **nothing is ever fulfilled, emailed or shipped**.
+   The handler will not warn you — the event simply never arrives.
+
+   This matters because checkout does not pin `payment_method_types`, so Stripe uses whatever
+   dynamic payment methods the Dashboard has enabled. If a delayed method is ever switched on in
+   the Dashboard, this event is live with no code change. Full rationale:
+   <https://docs.stripe.com/checkout/fulfillment>. If you would rather avoid the dependency
+   entirely, disable delayed payment methods in Dashboard → Settings → Payment methods.
 4. (Optional) If you want fixed Prices, create two Prices and set `STRIPE_PRICE_DIGITAL` /
    `STRIPE_PRICE_HEIRLOOM`. If unset, checkout uses inline pricing from `src/lib/pricing.js`.
 
@@ -133,10 +148,15 @@ stripe login
 stripe listen --forward-to localhost:3000/api/stripe-webhook
 # put the printed whsec_… into .env.local, restart `npm run dev`, then:
 stripe trigger checkout.session.completed
+stripe trigger checkout.session.async_payment_succeeded
 ```
 
 Note: a bare `trigger` won't carry your dedication metadata, so the handler will reject it
 (that's expected). The real test is a full checkout through the site.
+
+`stripe listen --forward-to` forwards **all** event types by default, so the local test does not
+prove your *deployed* endpoint is subscribed to the async event. Check that separately in
+Dashboard → Developers → Webhooks.
 
 ## 8. Common issues
 

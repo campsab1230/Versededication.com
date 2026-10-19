@@ -183,7 +183,8 @@ Full sequence in `docs/DEPLOYMENT.md`. The short version:
 3. **Environment variables** (Production *and* Preview) — see §8. Set them **before** the first
    deploy, or the build bakes in nothing and you get an empty site.
 4. **Stripe** → Developers → Webhooks → add `https://versededication.com/api/stripe-webhook`,
-   event `checkout.session.completed`. Copy the `whsec_…`.
+   events `checkout.session.completed` **and** `checkout.session.async_payment_succeeded`.
+   Copy the `whsec_…`. See §18 — subscribing to only the first event can silently lose a paid order.
 5. **Domains** → add `versededication.com` and `www.versededication.com`, create the DNS records
    Vercel shows (`A @ 76.76.21.21`, `CNAME www cname.vercel-dns.com` — use whatever Vercel renders),
    then set apex canonical and `www` → 301 → apex.
@@ -652,3 +653,74 @@ runs *before* authentication, so the wrong region answers
 Note `db.<ref>.supabase.co:5432` is **not** reachable from the sandbox; use the pooler. Applying SQL
 this way needs the database password, which is not in this repo and must not be committed — the SQL
 Editor avoids that entirely, so prefer it.
+
+---
+
+## 18. Stripe webhook: fulfilment was not gated on payment
+
+**Found and fixed 2026-10-19.** The original handler fulfilled on *every*
+`checkout.session.completed`:
+
+```js
+case 'checkout.session.completed':
+  await handleCheckoutCompleted(event.data.object);   // <- unconditional
+```
+
+That event does **not** mean the money arrived. For *delayed* payment methods (ACH / bank debits,
+some wallets) Stripe fires `checkout.session.completed` while `payment_status` is still `unpaid`,
+and only later fires `checkout.session.async_payment_succeeded` once the funds settle. Fulfilling
+unconditionally would mint a dedication, generate and upload the certificate PDF, and email the
+customer — for a payment that may never clear. The PDF costs nothing to produce, but the Heirloom
+tier is a **physical item that would have shipped**.
+
+### The fix
+
+The handler now skips only when the session is explicitly unpaid, and treats the async event as a
+second fulfilment trigger:
+
+```js
+if (event.data.object.payment_status === 'unpaid') { /* log, break */ }
+await handleCheckoutCompleted(event.data.object);
+// plus: case 'checkout.session.async_payment_succeeded': -> same handler
+```
+
+**`=== 'unpaid'`, not `!== 'paid'`.** This is the trap. Stripe's own
+[fulfilment guide](https://docs.stripe.com/checkout/fulfillment) uses
+`if checkout_session.payment_status != 'unpaid'`, because `no_payment_required` — a 100%-discounted
+or zero-total session — is a *completed sale that must still be fulfilled*. An inverted check that
+accepts only exactly `'paid'` silently strands those orders.
+
+### I got that wrong first, and my own test agreed with me
+
+The first patch used `!== 'paid'`. The guard test "passed" 5/5 — because I had written
+`no_payment_required -> expect 0 fulfilled` into the expectations, encoding my own wrong assumption
+as the pass condition. It was only caught by reading Stripe's docs, not by the test.
+
+Lesson worth keeping: **a test whose expectations come from the same head that wrote the code proves
+nothing.** Expectations must come from an external authority (the vendor's docs) or from observed
+production behaviour. The reworked test reads expectations from the docs and now covers
+`paid`, `unpaid`, `no_payment_required`, `async_payment_succeeded`, an unrelated event, and
+`async_payment_failed`. All six pass.
+
+The test runs the **real switch block extracted from the source file** (`/tmp/guard-test2.mjs`)
+rather than a hand-copied re-implementation, so it cannot silently drift from what ships.
+
+### ⚠️ New deployment dependency — the fix is only safe once this is done
+
+Because the handler now *skips* unpaid sessions, the endpoint **must** be subscribed to
+`checkout.session.async_payment_succeeded`, or a delayed-method order is charged and never fulfilled.
+`docs/DEPLOYMENT.md` previously said to subscribe to `checkout.session.completed` only; that has been
+corrected, and §7 step 4 links here.
+
+**Action:** Stripe → Developers → Webhooks → your endpoint → confirm **both** events are selected.
+`stripe listen --forward-to` forwards everything by default, so a successful local test does **not**
+prove the deployed endpoint is subscribed to the async event.
+
+This is live the moment a delayed payment method is enabled in the Dashboard, because
+`create-checkout-session.js` does not pin `payment_method_types` — it inherits whatever dynamic
+payment methods Stripe has enabled. Either subscribe to the event, or switch delayed methods off.
+
+### Still open from §16
+
+The `dedications` column leak remains **unfixed on the live database** (verified again this session:
+anon `?select=message` still returns `200` with data). The SQL is committed and ready in §16/§17.
