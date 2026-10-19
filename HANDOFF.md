@@ -461,3 +461,18 @@ curl -s -X POST https://www.versededication.com/api/verse-request \
 
 Verified locally: `/api/verse-request` returns `emailReason:"not_configured"` when the key is empty, and
 405 / 400 / 400 / 400 for the GET, empty-body, pasted-paragraph and bad-email cases.
+
+### Contact address (2026-10-19)
+
+`CONTACT_EMAIL` now falls back to **`verserequesting@gmail.com`** instead of the unmonitored
+`hello@versededication.com`. It is the fallback in `src/lib/site.js`, **not** an env var, because
+`NEXT_PUBLIC_*` is inlined at build time — depending on the var alone silently ships a bouncy address
+whenever it is unset. `NEXT_PUBLIC_CONTACT_EMAIL` still overrides it if you ever want to.
+
+This address is used in two places: the `mailto:` links on /contact, /privacy, /terms, /refunds, and as
+the recipient of the verse-request admin notification.
+
+**`EMAIL_FROM` is a separate thing and still needs attention.** It is `certificates@versededication.com`,
+which Resend will reject (403) until the sending domain is verified. Until then, clear `EMAIL_FROM` in
+Vercel so it falls back to `onboarding@resend.dev` — Resend's test sender, which CAN deliver to the
+address that owns the Resend account. See the `emailReason` table above for how to tell which case you hit.

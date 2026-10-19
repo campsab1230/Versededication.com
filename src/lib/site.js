@@ -52,8 +52,13 @@ export const CHARITY_DESCRIPTION = `donated to ${CHARITY.name}, so Scripture can
 // Convenience blurb used across the site.
 export const CHARITY_SENTENCE = `${CHARITY_PERCENT}% of every purchase is given to ${CHARITY.name}.`;
 
+// Where customer mail goes AND where verse-request notifications are sent.
+// The fallback is deliberate: NEXT_PUBLIC_* vars are inlined at build time, so
+// relying on the env var alone silently ships a dead address when it is unset.
+// A real, monitored inbox here means the site never advertises an address that
+// bounces, and admin notifications have somewhere to land.
 export const CONTACT_EMAIL =
-  process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'hello@versededication.com';
+  process.env.NEXT_PUBLIC_CONTACT_EMAIL || 'verserequesting@gmail.com';
 
 export const MAX_MESSAGE_LENGTH = 140;
 
