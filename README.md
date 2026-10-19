@@ -7,6 +7,10 @@ Translators** (EIN 23-7433923) — Charity Navigator top rating, Candid Platinum
 Built with **Next.js (Pages Router)** + **Supabase** + **Stripe** + **Resend**, with certificate
 PDFs generated server-side via **pdf-lib**.
 
+> **Taking this over? Read [`HANDOFF.md`](HANDOFF.md) first.** It covers the data model, the
+> deployment ordering trap, credentials, known gotchas, and a fresh-setup verification checklist —
+> including why a database outage used to look like an empty page.
+
 ---
 
 ## Features (implemented)
@@ -28,6 +32,12 @@ PDFs generated server-side via **pdf-lib**.
   `sitemap.xml`, `robots.txt`, favicon.
 - **Accessibility** — dialogs with `role="dialog"`/`aria-modal`/Escape/scroll-lock, `aria-expanded`
   FAQ, `aria-pressed` filters, visible focus rings.
+- **Verse requests** — if a visitor can't find a verse, they can request it. Stored in
+  `verse_requests`, with an optional confirmation email to them and a notification to the site owner.
+  The UI promises the verse **within 24 hours**.
+- **Loud failure on outages** — a database that cannot be read now surfaces as an explicit
+  "temporarily unavailable" state (plus server logs) instead of a cheerful empty grid. See
+  `src/lib/verseData.js`.
 
 ## Not yet implemented / recommended next
 
@@ -119,8 +129,32 @@ stripe listen --forward-to localhost:3000/api/stripe-webhook
 
 ## Database setup
 
-In Supabase → SQL Editor, run **`db/schema.sql`**, then **`db/seed.sql`**.
+In Supabase → SQL Editor, run **`db/setup.sql`** — that single file is `db/schema.sql` followed by
+`db/seed.sql`, and it is **safe to re-run** (verified: re-running leaves existing rows untouched, so
+you can run it again on a live database to pick up new tables).
+
+`db/schema.sql` and `db/seed.sql` remain the source of truth. To regenerate the combined file:
+
+```bash
+bash scripts/make-setup-sql.sh
+```
+
 Then create a Storage bucket named `certificates` (public recommended) — see `docs/DEPLOYMENT.md`.
+
+### Verse requests
+
+`verse_requests` holds a requester's name and email, so it has **no public read policy** — it is
+written and read only by the server via the service role. Do not add a SELECT policy for `anon`:
+that would leak every requester's email address. Reviewed in `/admin`? Not yet — query it directly:
+
+```sql
+select reference, requester_name, requester_email, created_at
+from verse_requests
+where status = 'pending'
+order by created_at desc;
+```
+
+`status` is one of `pending` / `added` / `declined`; set `resolved_at` when you close one out.
 
 ## Deployment
 
