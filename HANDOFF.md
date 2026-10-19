@@ -496,3 +496,35 @@ proprietorship trading as "Verse Dedication".
 
 Also note a PO Box satisfies most consumer-notice requirements but **not all payment-provider checks**,
 some of which want a physical address. If Stripe asks, that is why.
+
+### Trap: duplicate DKIM records at one selector (found 2026-10-19)
+
+`resend._domainkey.versededication.com` has **two** TXT records (both 218 chars). DKIM requires exactly
+one key per selector. Two happens when the domain is added in a *second* Resend account without the
+first account's records being removed — the new account adds its key alongside the stale one.
+
+Effect: DKIM verification becomes undefined/intermittent (some verifiers concatenate the strings), so
+mail can fail authentication and land in spam. It does **not** cause a 401 — that is always the API key.
+
+| Record | Prefix after `p=` | Origin |
+|---|---|---|
+| stale | `MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCXrcxmSuayy7lu...` | prior Resend account |
+| current | `MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC+5wnzl5yj+VQS8pRf...` | account signed into on 2026-10-19 |
+
+Delete the stale one; keep the value the live Resend dashboard shows. To check:
+
+```bash
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=resend._domainkey.versededication.com&type=TXT' \
+  | python3 -c "import sys,json;[print(len(a['data'].strip(chr(34))), a['data'][40:70]) for a in json.load(sys.stdin).get('Answer',[])]"
+# want ONE line
+```
+
+### `resend_http_401` = the key, not the domain
+
+Signing into Resend and verifying the domain does **not** change the key already stored in Vercel.
+A 401 from Resend means the key is invalid/revoked/orphaned — typically because Vercel still holds the
+key from a **previous** Resend account. `403` is the domain-not-verified case; `401` is never that.
+
+Fix: resend.com (the account in use now) → API Keys → create → update `RESEND_API_KEY` in Vercel →
+**redeploy**. Env vars are injected at deploy time, so editing the variable alone changes nothing.
