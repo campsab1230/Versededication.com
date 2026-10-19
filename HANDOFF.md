@@ -359,7 +359,7 @@ from a guide rather than the card leaves the domain stuck on "Invalid Configurat
   Let's Encrypt HTTP-01 challenge both fail. Re-enable the proxy afterwards if you want it.
 - **No AAAA records** on the apex. Vercel does not support IPv6 for third-party-DNS custom domains,
   and an AAAA splits traffic so the certificate challenge lands elsewhere.
-- **Fl exible SSL** causes `err_too_many_redirects`. Use Full.
+- **Flexible SSL** causes `err_too_many_redirects`. Use Full.
 - Stuck on "Invalid Configuration" after the records are correct? Remove the domain from the project
   and add it again to reset the check.
 - A `CAA` record that omits Let's Encrypt blocks issuance.
