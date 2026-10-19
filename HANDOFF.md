@@ -303,7 +303,12 @@ certificate.
 1. **Legal page placeholders.** `src/pages/contact.js` still has `[YOUR LEGAL / BUSINESS NAME]`,
    `[MAILING ADDRESS…]`, `[STATE / COUNTRY OF REGISTRATION]`. Many payment providers and consumer
    laws require this. Everything else is filled in.
-2. **`versededication.com` DNS** — no records exist yet.
+2. **`versededication.com` DNS** — the zone is live on Cloudflare's nameservers
+   (`apollo.ns.cloudflare.com`, `veronica.ns.cloudflare.com`) but holds **no A, AAAA, CNAME or MX
+   records**. Apex and `www` both resolve to nothing, so the domain never reaches Vercel. See
+   §14 for the exact records to add. Note: `dig` does **not** work in this sandbox — it returns
+   empty for `google.com` too. Use the HTTPS lookup in §14 instead, or you will get false
+   "no DNS" readings.
 3. **Three Vercel env vars** if not yet set: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `RESEND_API_KEY`.
 4. **Rotate the Supabase service-role key** (§9).
 
@@ -323,3 +328,58 @@ rate limiting, and a keep-alive so the Supabase project cannot idle-pause.
 6. `POST $SITE/api/verse-request` with `{}` → `400` JSON; `GET` → `405` JSON.
 7. Full test checkout with `4242 4242 4242 4242` → order row `paid`, dedication row with a
    `dedication_number`, certificate in Storage, email received.
+
+---
+
+## 14. Pointing versededication.com at Vercel
+
+The domain's nameservers are **Cloudflare** (`apollo.ns.cloudflare.com`, `veronica.ns.cloudflare.com`),
+so all records below are added in the **Cloudflare dashboard**, not at the registrar.
+
+### Records
+
+| Type | Name (Cloudflare) | Value | Proxy |
+|---|---|---|---|
+| `A` | `@` | **read it from your Vercel domain card** — commonly `76.76.21.21`, but newer projects get an anycast IP such as `216.198.79.1` | **DNS only** (grey cloud) |
+| `CNAME` | `www` | the CNAME target on the same card (often `cname.vercel-dns.com`) | **DNS only** (grey cloud) |
+
+The domain card is the source of truth. Vercel verifies the **exact** value it expects, so an IP copied
+from a guide rather than the card leaves the domain stuck on "Invalid Configuration".
+
+### Order
+
+1. Vercel → project → **Settings → Domains** → add `versededication.com` *and* `www.versededication.com`.
+2. Note the A value + CNAME target shown on the cards.
+3. Cloudflare → **DNS → Records** → add both rows above.
+4. Cloudflare → **SSL/TLS → Overview** → set mode to **Full**.
+
+### Gotchas that actually bite
+
+- **Orange cloud must be off** (grey / "DNS only") while Vercel verifies, or verification and the
+  Let's Encrypt HTTP-01 challenge both fail. Re-enable the proxy afterwards if you want it.
+- **No AAAA records** on the apex. Vercel does not support IPv6 for third-party-DNS custom domains,
+  and an AAAA splits traffic so the certificate challenge lands elsewhere.
+- **Fl exible SSL** causes `err_too_many_redirects`. Use Full.
+- Stuck on "Invalid Configuration" after the records are correct? Remove the domain from the project
+  and add it again to reset the check.
+- A `CAA` record that omits Let's Encrypt blocks issuance.
+
+### Checking it, given `dig` is broken here
+
+```bash
+# apex
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=versededication.com&type=A' | python3 -m json.tool
+# www
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=www.versededication.com&type=CNAME' | python3 -m json.tool
+# once live
+curl -sI https://versededication.com | head -1
+```
+
+### Still to do after the site resolves
+
+`EMAIL_FROM` is `certificates@versededication.com`, so **Resend** needs its own DNS records
+(DKIM `TXT`, SPF `TXT`, `MX`) on a subdomain — added in this same Cloudflare panel. Until that domain
+is verified in Resend, `sendCertificateEmail` / `sendVerseRequestEmail` return `{ skipped: true }` and
+mail is silently not sent. The code is written to survive that (orders and requests are still recorded).
