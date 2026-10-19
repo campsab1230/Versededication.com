@@ -476,3 +476,23 @@ the recipient of the verse-request admin notification.
 which Resend will reject (403) until the sending domain is verified. Until then, clear `EMAIL_FROM` in
 Vercel so it falls back to `onboarding@resend.dev` — Resend's test sender, which CAN deliver to the
 address that owns the Resend account. See the `emailReason` table above for how to tell which case you hit.
+
+### Business identity filled in (2026-10-19)
+
+`src/pages/contact.js` no longer has placeholders. The values live in a `BUSINESS` object in
+`src/lib/site.js` so they can be changed in one place:
+
+| Field | Value |
+|---|---|
+| `name` | `Verse Dedication` |
+| `addressLines` | `['PO Box 173', 'Samoa, CA 95564']` |
+| `registration` | `California, United States` |
+
+**Open question for the owner:** "Verse Dedication" is a **trading name, not a registered legal
+entity**. California requires a Fictitious Business Name (FBN) statement — county filing plus newspaper
+publication — to transact under a name that is not the owner's own legal name, and Stripe may ask for the
+registered name during account review. Forming an LLC is the alternative. Until then this is a sole
+proprietorship trading as "Verse Dedication".
+
+Also note a PO Box satisfies most consumer-notice requirements but **not all payment-provider checks**,
+some of which want a physical address. If Stripe asks, that is why.

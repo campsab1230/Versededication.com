@@ -1,5 +1,5 @@
 import Head from 'next/head';
-import { CONTACT_EMAIL, SITE_NAME, siteUrl } from '@/lib/site';
+import { BUSINESS, CONTACT_EMAIL, SITE_NAME, siteUrl } from '@/lib/site';
 
 export default function Contact() {
   return (
@@ -25,11 +25,11 @@ export default function Contact() {
 
         <h2>Business details</h2>
         <p>
-          [YOUR LEGAL / BUSINESS NAME]
+          {BUSINESS.name}
           <br />
-          [MAILING ADDRESS — required by many payment providers and consumer laws]
+          {BUSINESS.addressLines.join(', ')}
           <br />
-          [STATE / COUNTRY OF REGISTRATION]
+          Registered in {BUSINESS.registration}
         </p>
 
         <h2>Site</h2>

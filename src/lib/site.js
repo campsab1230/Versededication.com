@@ -52,6 +52,31 @@ export const CHARITY_DESCRIPTION = `donated to ${CHARITY.name}, so Scripture can
 // Convenience blurb used across the site.
 export const CHARITY_SENTENCE = `${CHARITY_PERCENT}% of every purchase is given to ${CHARITY.name}.`;
 
+// ============================================================
+// BUSINESS — the identity shown on /contact. Payment providers
+// and consumer-protection rules expect a reachable name and
+// address, so keep this accurate.
+//
+// ⚠️  "Verse Dedication" is currently a TRADING name, not a
+//     registered legal entity. California requires a Fictitious
+//     Business Name statement (county filing + newspaper
+//     publication) to trade under a name that is not your own
+//     legal name, and payment providers may ask for it. Forming
+//     an LLC is the alternative. Until one of those is done,
+//     this page describes a sole proprietorship trading as
+//     "Verse Dedication".
+//
+// Change these values in ONE place and /contact updates.
+// ============================================================
+export const BUSINESS = {
+  name: 'Verse Dedication',
+  // A PO Box satisfies most payment-provider and consumer-notice
+  // requirements. Some formal notices need a street address —
+  // update this if you get a physical premises.
+  addressLines: ['PO Box 173', 'Samoa, CA 95564'],
+  registration: 'California, United States',
+};
+
 // Where customer mail goes AND where verse-request notifications are sent.
 // The fallback is deliberate: NEXT_PUBLIC_* vars are inlined at build time, so
 // relying on the env var alone silently ships a dead address when it is unset.
