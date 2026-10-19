@@ -213,11 +213,21 @@ export async function generateCertificatePdf({
   page.drawImage(bg, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
 
   // ---- fonts
-  const cinzel = await pdf.embedFont(b64ToBytes(CinzelBold), { subset: false });
-  const deco = await pdf.embedFont(b64ToBytes(CinzelDecorativeBold), { subset: false });
-  const crimReg = await pdf.embedFont(b64ToBytes(CrimsonRegular), { subset: false });
-  const crimIt = await pdf.embedFont(b64ToBytes(CrimsonItalic), { subset: false });
-  const crimBold = await pdf.embedFont(b64ToBytes(CrimsonBold), { subset: false });
+  //
+  // `liga: false` on every face.  pdf-lib performs fontkit's ligature
+  // substitution and embeds the resulting glyphs, but emits NO ToUnicode entry
+  // for them, so any word containing "fl"/"fi"/"ff" is unextractable from the
+  // finished PDF — "flesh" extracts as "esh", leaving a 14pt hole in the text
+  // layer.  The glyphs still *render*, so this is invisible on screen and only
+  // breaks search, copy-paste, and screen readers.  Verified: turning the
+  // feature off widens a pair by ~0.1pt and changes the line count of none of
+  // the 45 verses (all still fit the 3-line box).
+  const TEXT_SAFE = { subset: false, features: { liga: false } };
+  const cinzel = await pdf.embedFont(b64ToBytes(CinzelBold), TEXT_SAFE);
+  const deco = await pdf.embedFont(b64ToBytes(CinzelDecorativeBold), TEXT_SAFE);
+  const crimReg = await pdf.embedFont(b64ToBytes(CrimsonRegular), TEXT_SAFE);
+  const crimIt = await pdf.embedFont(b64ToBytes(CrimsonItalic), TEXT_SAFE);
+  const crimBold = await pdf.embedFont(b64ToBytes(CrimsonBold), TEXT_SAFE);
   // Great Vibes is a connected cursive face whose `liga`/`calt` substitutions
   // swap in joining glyph variants.  fontkit applies those substitutions but
   // NOT the matching GPOS cursive-attachment positioning, so the variants land

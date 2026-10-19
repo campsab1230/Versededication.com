@@ -1014,3 +1014,158 @@ SELECT **grant** on the table. That is the same grant pattern that exposed
 `dedications`. `orders` holds `email`, `shipping_name`, `shipping_address`,
 `stripe_payment_intent_id`. Recommend applying the same column-scoped `grant`/
 `revoke` treatment to `orders` as defence in depth.
+
+---
+
+## 22. Verse text: corrections APPLIED to the live database (2026-10-19)
+
+### What went live
+
+All 26 defective `text_kjv` values were written directly to the production
+database over PostgREST with the service-role key — the user did not have to
+paste anything. Verified after the write:
+
+```
+live verses: 45   seed verses: 45
+live != seed: 0
+live containing '...': 0
+```
+
+All 10 featured verses now carry full text (`Psalm 23:1-4` 127 -> 356 chars,
+`Numbers 6:24-26` -> 167, `Matthew 17:20` -> 249 including the mountain clause).
+
+Pre-write values were saved to `backups/verse-text-backup-2026-10-19.json`
+(26 rows) so the change is reversible.
+
+`seed.sql` needed no separate handling — it was already corrected in a0b0601,
+and `db/fix-verse-text.sql` remains the paste-able equivalent for anyone
+rebuilding from scratch.
+
+### ISR made it look broken for ~6 minutes
+
+The first homepage fetch after the write still showed the OLD Psalm 23. That was
+pure cache, not a failed write:
+
+| page | revalidate | observed |
+|---|---|---|
+| `/` (homepage) | 60s | corrected on second fetch |
+| `/verse/[slug]` | 300s | corrected after ~5 min |
+
+Worth remembering: **a DB fix to verse text is not visible until the ISR window
+elapses.** Nothing is hardcoded — `src/lib/verseData.js` reads `verses` from the
+DB, so no redeploy is required for text changes.
+
+### Certificate generator reads fresh text
+
+`src/pages/api/stripe-webhook.js:166` does
+`.from('verses').select('reference, text_kjv')` at purchase time, so the DB fix
+flows straight into newly issued certificates. No code change was needed for this
+half of the defect.
+
+---
+
+## 23. Certificate text layer was broken by font ligatures (2026-10-19)
+
+### How it surfaced — through a false positive of my own
+
+The verse-fit audit compared `pdftotext` output against source text. It flagged
+`Genesis 2:24` as "TRUNCATED 95%". Rendering the page to an image showed the
+verse was **complete** — but extracted as:
+
+```
+be one     esh.        <- 14.4pt hole where "fl" should be
+```
+
+Word bounding boxes confirmed a real gap: `one` ended at x=395.07, `esh.` began
+at x=409.49.
+
+### Root cause
+
+pdf-lib applies fontkit's ligature substitution and embeds the resulting glyph,
+but emits **no ToUnicode entry** for it. Evidence:
+
+```
+width("f") + width("l")  = 6.46875
+width("fl")              = 6.35156   <- narrower, so a ligature IS being used
+```
+
+So the glyph renders correctly on screen and the PDF is visually perfect, but
+every word containing `fl` / `fi` / `ff` is **unsearchable, uncopyable, and
+invisible to screen readers**. The text layer was silently degraded.
+
+Minimal reproduction:
+
+| `embedFont` options | pdftotext result for `flesh floods conflict` |
+|---|---|
+| `{ subset: false }` | `"ict"` |
+| `{ subset: false, features: { liga: false } }` | `"flesh floods conflict"` |
+
+### Fix and why it is safe
+
+`src/lib/certificate.js` now embeds all five body fonts with
+`features: { liga: false }`. The codebase already knew half of this trap — the
+Great Vibes face carried `{ liga: false, calt: false }` with a comment about
+substitutions landing on raw advances — the four body fonts simply never got it.
+
+Disabling ligatures makes text fractionally wider, and `Psalm 23:1-4` already sat
+at 9.8pt filling exactly 3 lines, so this could have silently truncated
+Scripture. It was measured before shipping:
+
+```
+ligaON    verses exceeding 3 lines: 0
+ligaOFF   verses exceeding 3 lines: 0
+```
+
+### Verification
+
+End-to-end, live DB text through the real renderer
+(`scripts/verify-live-certificate.mjs`):
+
+```
+Psalm 23:1-4        FULL   356   featured
+Genesis 2:24        FULL   115
+Matthew 17:20       FULL   249
+Numbers 6:24-26     FULL   167   featured
+1 Corinthians 13:4-7 FULL  337   featured
+Song of Solomon 8:7  FULL  156
+PASS: every live verse renders complete on the certificate
+```
+
+The `fl` gap collapsed from 14.4pt to 2.6pt (normal word spacing). All four
+`render-sample` regression samples still render, and the `noNames` guard still
+draws no name.
+
+### Correction to the earlier audit (my error)
+
+HANDOFF §20 and the first fit audit claimed Psalm 23:1-4 was "TRUNCATED 94% on
+the certificate". **That was wrong.** It was the same `fl` extraction artifact
+(`flesh`? no — the verse-fit script compared normalised text and the ligature
+mangled enough tokens to look like truncation). Rendered to an image, the verse
+displays completely, ending `"...thy rod and thy staff they comfort me."`
+
+Two independent checks now agree there is **no truncation**:
+
+1. Geometric reproduction of the renderer's own wrap loop with real font metrics
+   -> 0 of 45 verses exceed 3 lines, both before and after the ligature fix.
+2. The extraction audit, re-run after the ligature fix -> 0 of 45 truncated.
+
+**Lesson: `pdftotext` is not a valid oracle for this renderer.** It mangled
+ligatures, and that produced a scary-looking false positive about Scripture
+being cut off. The authoritative check is geometric (real font metrics), with
+rasterised images as the visual confirmation. Both are now scripted:
+`scripts/audit-verse-fit2.mjs` and `scripts/audit-verse-fit.mjs`.
+
+---
+
+## 24. Housekeeping (2026-10-19)
+
+- **`.gitignore` was too narrow.** It listed only `scripts/_bundle.mjs`, so the
+  two new 5MB harness bundles would have been committed on the next `git add -A`.
+  Widened to `scripts/_bundle*.mjs`. Verified with `git check-ignore` that all
+  three bundles are ignored while the `.mjs` sources stay tracked.
+- **`scripts/_bundle.mjs` (5.1MB) IS in git history** — committed by the early
+  `genspark auto-backup` commits (`c15cf4a`, `ca14f19`). It is ignored now, so
+  it will not be re-added, but it remains in those old commits. Repo `.git` is
+  15MB. Not worth a history rewrite for a private repo; noted in case it ever is.
+- Retired the scratch Postgres clusters used for the SQL regression tests
+  (`/tmp/pgfix`, `/tmp/pge2e`); confirmed no postgres process or port left behind.

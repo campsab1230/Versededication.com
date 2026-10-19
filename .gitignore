@@ -47,5 +47,7 @@ coverage/
 # Generated font build intermediates
 assets/fonts/build/
 
-# Dev harness bundle (regenerate with esbuild — see scripts/render-sample.mjs)
-scripts/_bundle.mjs
+# Dev harness bundles (regenerate with esbuild — see the header of each
+# scripts/*.mjs harness). These are multi-MB esbuild outputs and must never
+# be committed; the glob covers every harness, not just the first one.
+scripts/_bundle*.mjs
