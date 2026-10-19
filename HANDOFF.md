@@ -720,6 +720,57 @@ This is live the moment a delayed payment method is enabled in the Dashboard, be
 `create-checkout-session.js` does not pin `payment_method_types` — it inherits whatever dynamic
 payment methods Stripe has enabled. Either subscribe to the event, or switch delayed methods off.
 
+### Also fixed: `amount_total ||` recorded the wrong amount on a $0 session
+
+```js
+amount_cents: session.amount_total || tierConfig.amountCents,   // before
+amount_cents: session.amount_total ?? tierConfig.amountCents,   // after
+```
+
+`0` is a legitimate `amount_total` (a $0 / `no_payment_required` session), but `0 || 1499`
+evaluates to `1499`. A session that collected nothing was recorded as a full-price Heirloom order,
+inflating revenue and mis-stating the order. `??` falls back only on `null`/`undefined`.
+
+Proven by extracting the real expression from the shipped file and diffing old vs new:
+799→799, 1499→1499, `0`→**0** (was 1499), `null`→1499. 4/4.
+
+### ⚠️ Latent, NOT fixed: idempotency is skipped when `payment_intent` is null
+
+The duplicate-delivery guard is:
+
+```js
+const paymentIntentId = session.payment_intent || null;
+if (paymentIntentId) { /* look for an existing order */ }
+```
+
+Stripe's API reference lists `payment_intent` as **nullable** on a Checkout Session. When it is
+null, the guard is skipped entirely, so a second delivery of the same event would create a
+**second order and a second dedication**, with a new `dedication_number`, and email the customer
+again.
+
+Nothing below catches it:
+
+- `orders.stripe_payment_intent_id` is `unique` — but the value is `NULL`, and Postgres permits
+  unlimited NULLs in a unique column, so the constraint never fires.
+- `dedications_verse_number_unique` is `(verse_id, dedication_number)` and the trigger hands the
+  second insert a *fresh* number, so it does not fire either.
+
+**Why this is latent rather than live:** the current checkout cannot produce such a session.
+`allow_promotion_codes` is never set and both tiers price from `src/lib/pricing.js` (799 / 1499),
+so a customer has no way to reach a $0 total. It becomes reachable if `STRIPE_PRICE_DIGITAL` /
+`STRIPE_PRICE_HEIRLOOM` are ever set to a $0 Price, or promotion codes are switched on, or an
+order is fully discounted in the Dashboard.
+
+**Not verified:** whether Stripe actually leaves `payment_intent` null on a completed `$0` session.
+I could not test this without live keys, so treat it as defensive, not confirmed.
+
+**Recommended fix (needs a migration, so deliberately not shipped unannounced):** add
+`stripe_session_id text unique` to `orders`, always populated from `session.id` (which is never
+null), and make the guard check `payment_intent` **or** `stripe_session_id`.
+
+⚠️ If that is done, **run the SQL before deploying the code** — new code querying a column that
+does not exist yet would break the money path. The reverse order is safe.
+
 ### Still open from §16
 
 The `dedications` column leak remains **unfixed on the live database** (verified again this session:

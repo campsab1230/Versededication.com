@@ -134,7 +134,11 @@ async function handleCheckoutCompleted(session) {
       stripe_payment_intent_id: paymentIntentId,
       email,
       tier: tierConfig.key,
-      amount_cents: session.amount_total || tierConfig.amountCents,
+      // `??`, not `||`: 0 is a legitimate amount_total (a $0 /
+      // `no_payment_required` session), but `0 || 1499` evaluates to 1499 and
+      // would record the full list price for a session that collected nothing,
+      // inflating revenue and mis-stating the order.
+      amount_cents: session.amount_total ?? tierConfig.amountCents,
       status: 'paid',
       shipping_name: shippingName,
       shipping_address: shippingAddress,
