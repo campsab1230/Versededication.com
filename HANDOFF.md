@@ -528,3 +528,29 @@ key from a **previous** Resend account. `403` is the domain-not-verified case; `
 
 Fix: resend.com (the account in use now) → API Keys → create → update `RESEND_API_KEY` in Vercel →
 **redeploy**. Env vars are injected at deploy time, so editing the variable alone changes nothing.
+
+### RESOLVED 2026-10-19: email sends; delete the OLD DKIM key
+
+`POST /api/verse-request` now returns `{"emailed":true,"emailReason":null}`. The 401 was cleared by
+replacing `RESEND_API_KEY` with a key from the Resend account signed into on 2026-10-19.
+
+**Which duplicate DKIM record to delete — evidence, not a guess.** Observed directly:
+
+| When | Records at `resend._domainkey` |
+|---|---|
+| before the new Resend account verified | **one** — `...XrcxmSuayy...` |
+| after it verified | **two** — `...+5wnzl5yj...` and `...XrcxmSuayy...` |
+
+So `+5wnzl` was *added* by the new account; `Xrcxm` predates it and belongs to the previous account.
+Consistency check: the API key now in use is the **new** account's, and it is the new account that signs
+outgoing mail — so its key (`+5wnzl`) is authoritative.
+
+**Keep** the value ending `...E9Z/pwIDAQAB` (`+5wnzl`). **Delete** the one ending `...VSAqGQ0wIDAQAB`
+(`Xrcxm`).
+
+Both render identically in Cloudflare's list (`"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADC...`) because the UI
+truncates after the 41-character prefix all 1024-bit RSA keys share — open the record to see the full
+value and compare the tail.
+
+Deliverability note: two TXT records at one DKIM selector make verification undefined, so mail can be
+spam-foldered even while it sends successfully. Deleting the stale key is what fixes that.
