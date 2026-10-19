@@ -41,8 +41,34 @@ export default async function handler(req, res) {
   try {
     switch (event.type) {
       case 'checkout.session.completed':
+        // ⚠️  `checkout.session.completed` does NOT imply the money arrived.
+        // With delayed payment methods (bank debits, some wallets) Stripe fires
+        // it while `payment_status` is still `unpaid`, then fires
+        // `checkout.session.async_payment_succeeded` once it settles.
+        // Fulfilling on `unpaid` would mint a certificate, store the PDF and
+        // email it for a payment that may never clear.
+        //
+        // Note the test is `=== 'unpaid'`, NOT `!== 'paid'`. Stripe's own
+        // fulfillment guide uses `payment_status != 'unpaid'`, because
+        // `no_payment_required` (a 100%-discounted or zero-total session) is
+        // still a completed sale that must be fulfilled. Rejecting anything
+        // that is not exactly `paid` would silently strand those orders.
+        // https://docs.stripe.com/checkout/fulfillment
+        if (event.data.object.payment_status === 'unpaid') {
+          console.warn(
+            `[stripe-webhook] session ${event.data.object.id} completed with ` +
+              `payment_status='unpaid' — awaiting async payment, not fulfilling yet.`
+          );
+          break;
+        }
         await handleCheckoutCompleted(event.data.object);
         break;
+
+      // The delayed-payment counterpart: this is the event that means paid.
+      case 'checkout.session.async_payment_succeeded':
+        await handleCheckoutCompleted(event.data.object);
+        break;
+
       default:
         // Ignore other events (Stripe recommends returning 2xx for unhandled).
         break;
