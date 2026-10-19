@@ -775,3 +775,71 @@ does not exist yet would break the money path. The reverse order is safe.
 
 The `dedications` column leak remains **unfixed on the live database** (verified again this session:
 anon `?select=message` still returns `200` with data). The SQL is committed and ready in §16/§17.
+
+---
+
+## 19. Admin surface audit (2026-10-19)
+
+There are exactly **four** API routes. Live status, unauthenticated:
+
+| Route | GET without auth | Note |
+|---|---|---|
+| `/api/admin/orders` | **401** `Not signed in.` | gated on `ADMIN_SECRET` cookie |
+| `/api/create-checkout-session` | 405 | POST-only, no secret needed (public action) |
+| `/api/verse-request` | 405 | POST-only, no secret needed (public form) |
+| `/api/stripe-webhook` | 405 | POST-only, gated by signature |
+
+`POST /api/admin/orders` with a wrong password → **401** `Incorrect password.`
+`PATCH /api/admin/orders` with no auth → **401**, and it is rejected *before* touching the DB, so it
+cannot mark an order shipped.
+
+### What is fine
+
+- **The `/admin` HTML shell is served publicly (`200`) but leaks nothing.** The gate is
+  client-side, so the page markup reaches anyone — but it contains no orders, no customer data and
+  no secret. The grep over the live shell returned only the literal word "password" from the form
+  label and `Order` from a heading. This is normal for a client-rendered page; the **API** is what
+  actually protects the data, and it does.
+- **`ADMIN_SECRET` is strong.** 64 characters, pure hex → **256 bits of entropy**. Not a
+  weakness; do not "fix" this.
+- **The secret never reaches the browser.** Only referenced in `src/pages/api/admin/orders.js`
+  (server-side). No `NEXT_PUBLIC_` prefix.
+- **Comparison is timing-safe** (`crypto.timingSafeEqual`) with a length check, so it does not leak
+  the secret's length through timing.
+- **`/admin` is `noindex, nofollow`** (verified in the live HTML) and is absent from
+  `sitemap.xml`. `robots.txt` does not *disallow* it, which is the right call — a `Disallow` would
+  prevent crawlers from ever seeing the `noindex`, and the page could still be indexed by URL.
+- Cookie flags are correct: `HttpOnly`, `SameSite=Strict`, `Secure` in production, 8-hour expiry.
+
+### Two genuine hardening gaps — minor, not critical
+
+Neither is currently exploitable given the 256-bit secret, but both are worth knowing:
+
+1. **No rate limiting on the admin login.** `POST /api/admin/orders` accepts unlimited password
+   guesses. Against a 256-bit random hex secret this is not a practical attack, but it is the
+   difference between "unattackable" and "unattackable *and* rate-limited". The pattern already
+   exists in `src/pages/api/verse-request.js` (the in-memory `throttled()` helper) and could be
+   reused. Note that any in-memory throttle is per-instance and only a speed bump.
+
+2. **The session cookie stores the raw secret.** Signing in sets
+   `vd_admin = <the ADMIN_SECRET itself>` rather than a derived session token:
+
+   ```js
+   `${ADMIN_COOKIE}=${encodeURIComponent(body.password)}`,
+   ```
+
+   Consequences: the long-lived master secret is now sitting in a browser cookie (8 hours), and
+   rotating the secret invalidates nothing selectively — it changes the login *and* every existing
+   cookie at once. A better shape is to sign a short-lived token (or store an HMAC of the secret)
+   so the master value is never handed to the client. `HttpOnly` + `SameSite=Strict` + `Secure`
+   already stop the realistic cookie-theft paths, which is why this is hardening rather than a hole.
+
+Both are recorded here rather than fixed, because changing auth shape on a live site without being
+asked is the kind of change that should be the owner's call.
+
+### Audit conclusion
+
+The admin surface is **in good shape**: every data-returning path is server-gated, the secret is
+cryptographically strong, and the only public artifact is a static shell with no secrets in it.
+The one outstanding *security* item across the whole audit remains the **§16 `dedications` column
+leak**, which is a real, verified, live exposure and is the only one of the three that leaks data.
