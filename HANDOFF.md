@@ -843,3 +843,83 @@ The admin surface is **in good shape**: every data-returning path is server-gate
 cryptographically strong, and the only public artifact is a static shell with no secrets in it.
 The one outstanding *security* item across the whole audit remains the **§16 `dedications` column
 leak**, which is a real, verified, live exposure and is the only one of the three that leaks data.
+
+---
+
+## 20. ⚠️ PRODUCT DEFECT: 26 of 45 verses are not the full KJV text
+
+**Found 2026-10-19 by rendering a real certificate and checking every verse against canonical KJV.**
+This is the most customer-visible problem in the codebase. The certificate prints the label **KJV**
+(`BIBLE_TRANSLATION_ABBR`, `src/lib/site.js`) — and for the majority of the catalogue, the text is
+not the KJV verse. It is a *shortened* version of it.
+
+Every one of the 45 live rows was fetched and diffed against `bible-api.com` KJV:
+
+| Class | Count |
+|---|---|
+| **VERBATIM** (exact KJV) | **19** |
+| TRUNCATED — correct wording, silently cut short | **21** |
+| ABRIDGED — words removed mid-verse, `...` left in | **4** |
+| DIFFERENT WORDING | **1** |
+| **Not the full KJV text** | **26 of 45 (58%)** |
+
+### ⚠️ 7 of the 10 homepage-featured verses are affected
+
+Featured verses are the ones shown on the landing page and most likely to be chosen:
+`1 Corinthians 13:4-7`, `Joshua 1:9`, `John 14:27`, `Proverbs 3:5-6`, `Romans 8:28`,
+`Psalm 23:1-4`, `Numbers 6:24-26` — all seven are incomplete. (Only `Philippians 4:13`,
+`Jeremiah 29:11`, `Psalm 119:105` are verbatim.)
+
+### The worst cases
+
+Two are not merely short — the most famous clause is **missing entirely**:
+
+- **`Matthew 17:20`** — DB: *"If ye have faith as a grain of mustard seed... nothing shall be
+  impossible unto you."* The KJV reads *"...ye shall say unto this mountain, Remove hence to yonder
+  place; and it shall remove; and nothing shall be impossible unto you."* The mountain-moving
+  clause, the entire point of the verse, is gone.
+- **`Numbers 6:24-26`** (the Aaronic blessing) ends at *"...and be gracious unto thee."* — the third
+  line, *"The LORD lift up his countenance upon thee, and give thee peace,"* is missing.
+
+Others lose 40–65% of the verse: `Psalm 100:4-5` (35% present), `2 Corinthians 1:3-4` (34%),
+`Ecclesiastes 4:9-10` (35%), `Psalm 27:1` (47%), `Isaiah 41:10` (51%).
+
+### Why this is serious, not cosmetic
+
+1. **It mislabels Scripture.** The certificate asserts KJV and then prints something that is not
+   the KJV verse. For a product whose entire purpose is Scripture, that is a correctness failure.
+2. **It is the paid deliverable.** Confirmed by rendering `Psalm 23:1-4` from the live DB text into
+   a real certificate — the customer receives *"I shall not want... Yea, though I walk through the
+   valley..."* with a visible `...` where verses 2–3 should be.
+3. **Abridging the KJV is a licensing grey area.** The KJV is public domain in the US (Crown
+   copyright elsewhere), but altering the text is a separate act from quoting it.
+4. **`scripts/render-sample.mjs` contains the CORRECT full text** for `Psalm 23:1-4` — verses 1–3
+   complete. So the right text existed in the repo and the DB was seeded with a different, shorter
+   version. The sample harness was therefore *hiding* this defect: it tested against good text that
+   is not what customers get.
+
+### Fix
+
+The canonical text must be written back in two places:
+
+1. `db/seed.sql` — the seeded `text_kjv` values.
+2. The **live rows** — the DB is already seeded, so editing `seed.sql` alone changes nothing for the
+   running site. This needs an `UPDATE` per verse (the §17 SQL Editor route).
+
+`/tmp/kjv-rows.json` holds the audited DB text, canonical KJV text and coverage % for all 45 verses,
+so the corrections can be generated rather than hand-retyped. Verify with
+`python3 /tmp/kjv-audit2.py` (re-fetches KJV; results cached in `/tmp/kjv-cache2.json`).
+
+**Do not hand-edit 26 verses under time pressure.** Generate the `UPDATE`s from the cached canonical
+text, then re-run the audit until it reports 45/45 VERBATIM.
+
+### Corrections made to my own analysis during this audit
+
+- I first flagged 9 verses as containing "modern pronouns" (`you`/`they`/`your`) implying a
+  non-KJV translation. **That was a false alarm** — KJV genuinely reads *"Blessed are they that
+  mourn"* and *"thoughts that I think toward you, saith the LORD"*. Retracted.
+- My first audit script counted `HTTP 429 Too Many Requests` rows as content mismatches, producing
+  a bogus "33 of 45 differ". Fixed with retry/backoff and explicit `UNVERIFIED` classification.
+- That same script classified a *truncated prefix* as `OK`, because a substring test passes when the
+  canonical merely *contains* the DB text. Fixed by comparing full normalised equality. The honest
+  number is **26 of 45**, not 33 and not 0.
