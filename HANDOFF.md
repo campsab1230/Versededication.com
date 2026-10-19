@@ -1138,10 +1138,22 @@ draws no name.
 ### Correction to the earlier audit (my error)
 
 HANDOFF §20 and the first fit audit claimed Psalm 23:1-4 was "TRUNCATED 94% on
-the certificate". **That was wrong.** It was the same `fl` extraction artifact
-(`flesh`? no — the verse-fit script compared normalised text and the ligature
-mangled enough tokens to look like truncation). Rendered to an image, the verse
-displays completely, ending `"...thy rod and thy staff they comfort me."`
+the certificate". **That was wrong.** It was the same ligature extraction artifact
+— but caused by the **`ff` in "staff"**, not by `flesh` as this section's first
+draft guessed. Measured directly on that verse:
+
+```
+[ligaON ] extracted tail: "...rod and thy sta\n\nthey comfort me.”"
+[ligaOFF] extracted tail: "...od and thy staff they comfort me.”"
+```
+
+The ligature swallowed the `ff` and inserted a line break, so a word-level prefix
+comparison against the source collapsed and the audit reported truncation. The
+verse was never truncated. Rendered to an image it displays completely, ending
+`"...thy rod and thy staff they comfort me."`
+
+So there were two ligature casualties, both now fixed: `fl` (Genesis 2:24) and
+`ff` (Psalm 23:1-4). Any word with `fl`/`fi`/`ff` was affected.
 
 Two independent checks now agree there is **no truncation**:
 
