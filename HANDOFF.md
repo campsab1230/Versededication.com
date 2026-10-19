@@ -923,3 +923,20 @@ text, then re-run the audit until it reports 45/45 VERBATIM.
 - That same script classified a *truncated prefix* as `OK`, because a substring test passes when the
   canonical merely *contains* the DB text. Fixed by comparing full normalised equality. The honest
   number is **26 of 45**, not 33 and not 0.
+
+### 20b. RESOLUTION — corrections written to the repo (2026-10-19)
+
+The 26 defective `text_kjv` values have been corrected in `db/seed.sql`, and
+`db/setup.sql` was regenerated from it (380 lines; the one remaining `...` in
+that file is inside the §16 explanatory comment, not a verse).
+
+Re-audit of the seed against the cached canonical KJV text: **44/45 exact**.
+The single non-match, `Mark 11:24`, is a *cache* artifact, not a defect — the
+upstream API returned `"ye shall havethem."` (missing space). The seed holds
+the correct `"ye shall have them."`, which is why it measured 101% coverage
+(longer than the cached copy). **Effective result: 45/45.**
+
+IMPORTANT — editing the seed does NOT change the running site. `seed.sql` is
+idempotent (`on conflict do nothing`), so already-inserted rows are untouched.
+The live rows must be updated separately with the generated
+`UPDATE verses SET text_kjv = ... WHERE reference = ...` statements.
