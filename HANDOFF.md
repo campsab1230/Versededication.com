@@ -486,7 +486,7 @@ address that owns the Resend account. See the `emailReason` table above for how 
 |---|---|
 | `name` | `Verse Dedication` |
 | `addressLines` | `['PO Box 173', 'Samoa, CA 95564']` |
-| `registration` | `California, United States` |
+| `location` | `California, United States` |
 
 **Open question for the owner:** "Verse Dedication" is a **trading name, not a registered legal
 entity**. California requires a Fictitious Business Name (FBN) statement — county filing plus newspaper

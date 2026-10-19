@@ -29,7 +29,7 @@ export default function Contact() {
           <br />
           {BUSINESS.addressLines.join(', ')}
           <br />
-          Registered in {BUSINESS.registration}
+          {BUSINESS.location}
         </p>
 
         <h2>Site</h2>

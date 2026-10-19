@@ -74,7 +74,9 @@ export const BUSINESS = {
   // requirements. Some formal notices need a street address —
   // update this if you get a physical premises.
   addressLines: ['PO Box 173', 'Samoa, CA 95564'],
-  registration: 'California, United States',
+  // Location only. Deliberately NOT worded as "registered in" —
+  // there is no registered legal entity yet (see note above).
+  location: 'California, United States',
 };
 
 // Where customer mail goes AND where verse-request notifications are sent.
