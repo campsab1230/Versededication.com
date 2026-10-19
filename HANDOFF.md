@@ -249,6 +249,9 @@ Vercel builds in the cloud, so this only matters for self-hosting.
 | No email | `RESEND_API_KEY` / `EMAIL_FROM` unset, or sending domain unverified |
 | Duplicate dedication numbers | The unique constraint from `db/schema.sql` wasn't applied |
 | `next dev` returns 500 on every API route | Running dev over a `.next` containing **production** output. Fix: `rm -rf .next` then `npm run dev`. This bit me during this session. |
+| `create-checkout-session` → `400 "A verse must be selected."` | `verse_id` is a **UUID**, not a slug, and must be a **string**. Look it up: `select id from verses where slug = 'psalm-23-1-4'` → `15fecc55-…`. Sending `1` or a slug fails validation *before* Stripe is ever called, so a 400 here says nothing about `STRIPE_SECRET_KEY`. |
+| Locked env var that "can't be edited" | It's owned by a **Vercel integration** (the blue `S` badge = Stripe). The integration reads and syncs the value, so the field is read-only by design — not a misconfiguration, and not something you need to change. |
+| Checkout URL is `cs_test_…` | Keys are **test mode**. Fine for launch rehearsal; swap in live keys before taking real money. |
 
 ### Supabase projects can vanish from DNS
 
@@ -313,7 +316,8 @@ rate limiting, and a keep-alive so the Supabase project cannot idle-pause.
 
 1. `db/setup.sql` runs clean. Confirm `select count(*) from verses` → **45**, `themes` → **11**.
 2. `curl -s -o /dev/null -w '%{http_code}' $SITE/` → `200`, and the verse grid is populated.
-3. `$SITE/verse/john-3-16` → `200` (not 404 — a 404 means the database is unreachable).
+3. `$SITE/verse/psalm-23-1-4` → `200` (use a slug that actually exists in `db/seed.sql`; a 404 on a
+   real slug means the database is unreachable). Note `verse_id` is a **UUID**, not a slug — see §13.7.
 4. `$SITE/sitemap.xml` contains verse URLs and your **real domain**, not a `*.vercel.app` host.
 5. `$SITE/og-image.png` → `200`, `image/png`, **342913 bytes**.
 6. `POST $SITE/api/verse-request` with `{}` → `400` JSON; `GET` → `405` JSON.
