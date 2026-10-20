@@ -4,7 +4,6 @@ import { getTier, isValidTier } from '@/lib/pricing';
 import { insertDedication } from '@/lib/dedications';
 import { generateCertificatePdf } from '@/lib/certificate';
 import { sendCertificateEmail } from '@/lib/email';
-import { siteUrl } from '@/lib/site';
 
 // Stripe needs the RAW body to verify the signature — disable body parsing.
 export const config = { api: { bodyParser: false } };
@@ -86,6 +85,90 @@ export default async function handler(req, res) {
   }
 }
 
+// Postgres reports a uniqueness conflict as SQLSTATE 23505. PostgREST passes
+// the code through, so the code is the reliable signal; the message is checked
+// too because some proxies strip the code field.
+function isUniqueViolation(err) {
+  if (!err) return false;
+  if (err.code === '23505') return true;
+  return /duplicate key value|unique constraint/i.test(err.message || '');
+}
+
+// Find the dedication belonging to an order.
+//
+// Deliberately NOT `.maybeSingle()`. That helper raises an error when more
+// than one row matches, and `dedications.order_id` has no unique constraint —
+// so a database that suffered the old idempotency bug (every retry of a
+// `no_payment_required` session inserted another dedication) has duplicates
+// for exactly the orders this resume logic exists to repair. maybeSingle would
+// error there, the error was previously ignored, `data` would read as null,
+// and we would insert yet another dedication on every retry — making the
+// duplication worse each time. Fetching a list and taking the oldest row
+// converges instead.
+async function findDedicationForOrder(db, orderId) {
+  const { data, error } = await db
+    .from('dedications')
+    .select('id, dedication_number, certificate_url, email_sent_at')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true })
+    .limit(2);
+
+  if (error) {
+    console.error('[stripe-webhook] dedication lookup failed:', error.message);
+    return null;
+  }
+  if (!data || !data.length) return null;
+
+  if (data.length > 1) {
+    console.warn(
+      `[stripe-webhook] order ${orderId} has multiple dedications — using the ` +
+        `earliest (${data[0].id}) and ignoring the rest. This indicates the old ` +
+        `idempotency bug; the duplicates should be cleaned up manually.`
+    );
+  }
+  return data[0];
+}
+
+// Locate a previously-recorded order for this Checkout Session.
+//
+// Two keys are tried because neither alone is sufficient:
+//   • stripe_session_id — ALWAYS present on a session. The column is added
+//     by db/add-orders-session-id.sql. Until that SQL is applied PostgREST
+//     answers 42703 (column does not exist) and we fall through, so this
+//     file is safe to deploy BEFORE the migration is run.
+//   • stripe_payment_intent_id — present for every session that collects
+//     money, but null for `no_payment_required` sessions, which is exactly
+//     the case where the old guard was skipped entirely.
+async function findExistingOrder(db, session, paymentIntentId) {
+  if (session.id) {
+    const { data, error } = await db
+      .from('orders')
+      .select('id, status')
+      .eq('stripe_session_id', session.id)
+      .maybeSingle();
+
+    if (!error) {
+      if (data) return data;
+    } else if (error.code !== '42703') {
+      console.error('[stripe-webhook] session-id lookup failed:', error.message);
+    }
+  }
+
+  if (!paymentIntentId) return null;
+
+  const { data, error } = await db
+    .from('orders')
+    .select('id, status')
+    .eq('stripe_payment_intent_id', paymentIntentId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[stripe-webhook] payment-intent lookup failed:', error.message);
+    return null;
+  }
+  return data || null;
+}
+
 async function handleCheckoutCompleted(session) {
   const db = supabaseAdmin();
 
@@ -112,30 +195,47 @@ async function handleCheckoutCompleted(session) {
   const paymentIntentId = session.payment_intent || null;
   const email = session.customer_details?.email || session.customer_email || null;
 
-  // ---- Idempotency: has this payment already produced an order? ----
-  if (paymentIntentId) {
-    const { data: existing } = await db
-      .from('orders')
-      .select('id, status')
-      .eq('stripe_payment_intent_id', paymentIntentId)
-      .maybeSingle();
+  // ---- Idempotency AND resume ----
+  //
+  // ⚠️  An order existing does NOT mean the sale was fulfilled. The order is
+  // written before the certificate is generated and before the email goes
+  // out, so a PDF or Resend failure leaves a PAID order with no certificate
+  // and no email. The old code returned early whenever an order existed,
+  // which meant every Stripe retry hit that same early return and the failure
+  // could never heal: the customer was charged, and silently received
+  // nothing, permanently. So each fulfilment step below is keyed off what is
+  // actually still missing rather than off "does an order exist".
+  let orderId = null;
+  let dedication = null;
 
-    if (existing) {
-      // Already processed — nothing else to do. Respond 200 to stop retries.
-      console.log(`[stripe-webhook] order for ${paymentIntentId} already exists (${existing.id})`);
-      return;
-    }
-  }
+  const existing = await findExistingOrder(db, session, paymentIntentId);
 
-  // ---- Shipping details (heirloom tier) ----
-  const ship = session.shipping_details || session.collected_information?.shipping_details || null;
-  const shippingName = ship?.name || null;
-  const shippingAddress = ship?.address || null;
+  if (existing) {
+    orderId = existing.id;
 
-  // ---- Create the order ----
-  const { data: order, error: orderErr } = await db
-    .from('orders')
-    .insert({
+    // Reuse the dedication from the previous attempt, if there was one.
+    dedication = await findDedicationForOrder(db, orderId);
+
+    console.log(
+      `[stripe-webhook] resuming order ${orderId} — ` +
+        `dedication ${dedication ? 'present' : 'MISSING'}, ` +
+        `certificate ${dedication?.certificate_url ? 'present' : 'MISSING'}, ` +
+        `email ${dedication?.email_sent_at ? 'sent' : 'NOT SENT'}`
+    );
+  } else {
+    // ---- Shipping details (heirloom tier) ----
+    const ship =
+      session.shipping_details || session.collected_information?.shipping_details || null;
+
+    // ---- Create the order ----
+    // `stripe_session_id` is the durable idempotency key, but the column only
+    // exists once db/add-orders-session-id.sql has been applied. Rather than
+    // require the migration before the code can ship (which would leave the
+    // live site broken in the meantime), we try WITH the column and fall back
+    // to omitting it only on a "no such column" error. That way the deploy
+    // order does not matter and nothing is lost when the column is missing —
+    // findExistingOrder() simply falls through to the payment-intent key.
+    const baseInsert = {
       stripe_payment_intent_id: paymentIntentId,
       email,
       tier: tierConfig.key,
@@ -145,28 +245,94 @@ async function handleCheckoutCompleted(session) {
       // inflating revenue and mis-stating the order.
       amount_cents: session.amount_total ?? tierConfig.amountCents,
       status: 'paid',
-      shipping_name: shippingName,
-      shipping_address: shippingAddress,
-    })
-    .select('id')
-    .single();
+      shipping_name: ship?.name || null,
+      shipping_address: ship?.address || null,
+    };
 
-  if (orderErr) throw orderErr;
+    let order = null;
+    let orderErr = null;
 
-  // ---- Create the dedication (race-safe number) ----
-  const dedication = await insertDedication({
-    verse_id,
-    order_id: order.id,
-    dedicator_name: dedicator_name || null,
-    is_anonymous: isAnonymous,
-    recipient_name,
-    message: message || null,
-    is_public: isPublic,
-  });
+    // Attempt 1 carries the session id. If the column is missing we learn that
+    // from the error and retry without it, so the deploy order never matters.
+    ({ data: order, error: orderErr } = await db
+      .from('orders')
+      .insert(session.id ? { ...baseInsert, stripe_session_id: session.id } : baseInsert)
+      .select('id')
+      .single());
+
+    if (orderErr) {
+      // 42703 = undefined_column, PGRST204 = absent from the PostgREST schema
+      // cache. Both mean db/add-orders-session-id.sql has not been run.
+      const columnMissing =
+        orderErr.code === '42703' ||
+        orderErr.code === 'PGRST204' ||
+        /stripe_session_id/.test(orderErr.message || '');
+
+      if (columnMissing) {
+        console.warn(
+          '[stripe-webhook] orders.stripe_session_id does not exist yet — run ' +
+            'db/add-orders-session-id.sql. Falling back to the payment-intent key.'
+        );
+        ({ data: order, error: orderErr } = await db
+          .from('orders')
+          .insert(baseInsert)
+          .select('id')
+          .single());
+      }
+    }
+
+    // ---- Concurrent delivery of the same event ----
+    //
+    // Stripe guarantees at-least-once delivery, and two deliveries can overlap:
+    // both invocations find no existing order, both insert, and the unique
+    // index rejects the loser with 23505. Retrying the insert would never
+    // succeed (the key is identical), and throwing would make Stripe retry
+    // forever. The correct move is to adopt the row the other invocation
+    // created — both are fulfilling the same payment.
+    if (orderErr && isUniqueViolation(orderErr)) {
+      const concurrent = await findExistingOrder(db, session, paymentIntentId);
+      if (concurrent) {
+        console.log(
+          `[stripe-webhook] lost the insert race for session ${session.id} — adopting order ${concurrent.id}`
+        );
+        order = { id: concurrent.id };
+        orderErr = null;
+      }
+    }
+
+    if (orderErr) throw orderErr;
+    orderId = order.id;
+  }
+
+  // ---- Dedication (created once; race-safe number) ----
+  if (!dedication) {
+    // Re-check immediately before inserting. A concurrent delivery that lost
+    // the order race above has already built a dedication for this order, and
+    // creating a second one would both duplicate the customer's certificate
+    // and burn a dedication_number for a verse they dedicated only once.
+    // (findDedicationForOrder, not maybeSingle — see its comment: an order may
+    // legitimately carry duplicates from the old idempotency bug, and
+    // maybeSingle would error on them and send us down the insert path again.)
+    dedication =
+      (await findDedicationForOrder(db, orderId)) ||
+      (await insertDedication({
+        verse_id,
+        order_id: orderId,
+        dedicator_name: dedicator_name || null,
+        is_anonymous: isAnonymous,
+        recipient_name,
+        message: message || null,
+        is_public: isPublic,
+      }));
+  }
 
   // ---- Generate + store the certificate PDF ----
-  let certificateUrl = null;
-  try {
+  // Skipped when a previous attempt already produced one, so a retry after
+  // an email-only failure does not re-render and re-upload the same file.
+  let certificateUrl = dedication.certificate_url || null;
+  let certificateFailed = false;
+
+  if (!certificateUrl) try {
     const { data: verse } = await db
       .from('verses')
       .select('reference, text_kjv')
@@ -197,30 +363,70 @@ async function handleCheckoutCompleted(session) {
       });
 
     if (uploadErr) {
+      certificateFailed = true;
       console.error('[stripe-webhook] certificate upload failed:', uploadErr.message);
     } else {
       const { data: pub } = db.storage.from(bucket).getPublicUrl(path);
       certificateUrl = pub?.publicUrl || null;
       if (certificateUrl) {
         await db.from('dedications').update({ certificate_url: certificateUrl }).eq('id', dedication.id);
+      } else {
+        certificateFailed = true;
+        console.error('[stripe-webhook] storage returned no public URL for', path);
       }
     }
   } catch (certErr) {
-    // Don't fail the whole webhook just because the PDF failed — the order
-    // is paid and recorded. Log so it can be regenerated.
+    // The order is paid and recorded, so we do not lose the sale — but we do
+    // NOT pretend it was delivered either. `certificateFailed` makes the
+    // handler ask Stripe to retry, and the resume path above completes only
+    // the steps that are still missing.
+    certificateFailed = true;
     console.error('[stripe-webhook] certificate generation failed:', certErr);
   }
 
   // ---- Email the certificate link ----
-  try {
-    await sendCertificateEmail({
-      to: email,
-      recipientName: recipient_name,
-      reference: verse_reference || 'your verse',
-      certificateUrl: certificateUrl || siteUrl(),
-      tier: tierConfig.key,
-    });
-  } catch (mailErr) {
-    console.error('[stripe-webhook] email failed:', mailErr);
+  //
+  // ⚠️  Only ever send a REAL certificate link. The old code passed
+  // `certificateUrl || siteUrl()`, so when rendering failed the customer got
+  // an email whose "Download your certificate" button pointed at the
+  // homepage. That is worse than sending nothing: it looks like the product
+  // was delivered, so the customer does not report it and the failure is
+  // silent. We now send only when a certificate exists, and record
+  // `email_sent_at` so a retry cannot mail the same person twice.
+  if (!email) {
+    console.error(
+      `[stripe-webhook] order ${orderId} has no customer email — certificate cannot be delivered.`
+    );
+  } else if (certificateUrl && !dedication.email_sent_at) {
+    try {
+      const mailResult = await sendCertificateEmail({
+        to: email,
+        recipientName: recipient_name,
+        reference: verse_reference || 'your verse',
+        certificateUrl,
+        tier: tierConfig.key,
+      });
+
+      if (mailResult?.ok) {
+        await db
+          .from('dedications')
+          .update({ email_sent_at: new Date().toISOString() })
+          .eq('id', dedication.id);
+      } else {
+        console.error('[stripe-webhook] email not sent:', JSON.stringify(mailResult));
+      }
+    } catch (mailErr) {
+      console.error('[stripe-webhook] email failed:', mailErr);
+    }
+  }
+
+  // Ask Stripe to retry ONLY when something is genuinely still missing.
+  // A 500 here is the mechanism that makes the resume path reachable; without
+  // it a transient PDF or Resend outage would be permanent.
+  const stillMissing =
+    certificateFailed || (Boolean(certificateUrl) && Boolean(email) && !dedication.email_sent_at);
+
+  if (stillMissing) {
+    throw new Error(`fulfilment incomplete for order ${orderId} — will retry`);
   }
 }

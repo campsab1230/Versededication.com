@@ -57,6 +57,11 @@ create index if not exists idx_verse_themes_theme on verse_themes (theme_id);
 create table if not exists orders (
   id uuid primary key default gen_random_uuid(),
   stripe_payment_intent_id text unique,
+  -- Stripe's Checkout Session id (cs_...). Added as the PRIMARY idempotency
+  -- key because a session always carries one, whereas payment_intent is null
+  -- for `no_payment_required` sessions — and that null was the case where the
+  -- webhook's duplicate guard was skipped entirely.
+  stripe_session_id text unique,
   email text,
   tier text not null check (tier in ('digital', 'heirloom')),
   amount_cents int not null,
@@ -229,6 +234,39 @@ end $$;
 -- email_sent_at.
 
 -- No select policy on orders — intentionally service-role only.
+--
+-- RLS with no policy already returns zero rows, but privileges are a second,
+-- independent lock. Supabase's blanket `GRANT SELECT ON ALL TABLES` means an
+-- anon-key request against orders is decided by the GRANT first: with the
+-- grant in place the response is `200 []`, which looks like an empty table
+-- rather than a refusal, and any future policy slip silently exposes
+-- customer emails, amounts and shipping addresses.
+--
+-- Production was measured returning 401 `42501 permission denied for table
+-- orders`, i.e. the privilege was revoked there but was NOT recorded in this
+-- file. Rebuilding from setup.sql would have silently dropped the hardening.
+-- This block closes that drift.
+--
+-- Every orders accessor in the app goes through supabaseAdmin()
+-- (src/lib/supabaseAdmin.js → service_role, which bypasses grants):
+--   src/pages/api/stripe-webhook.js:118,137
+--   src/pages/api/admin/orders.js:45,96
+-- so revoking from anon/authenticated cannot break the site.
+--
+-- No grant is re-added: nothing in the app reads orders with a public key.
+-- Same `if exists (pg_roles)` guard as above, so this stays runnable on a
+-- plain Postgres with no Supabase roles.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on table orders from anon;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on table orders from authenticated;
+  end if;
+end $$;
 
 -- ============================
 -- VERSE REQUESTS
