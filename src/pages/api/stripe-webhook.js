@@ -393,11 +393,22 @@ async function handleCheckoutCompleted(session) {
   // was delivered, so the customer does not report it and the failure is
   // silent. We now send only when a certificate exists, and record
   // `email_sent_at` so a retry cannot mail the same person twice.
+  // Track delivery in a local flag, NOT by re-reading `dedication.email_sent_at`.
+  // That field holds the value read at the START of this invocation, so after a
+  // successful send it is still null here. Testing it again would mark a
+  // completed fulfilment as incomplete, return 500, and ask Stripe to retry
+  // work that is already finished.
+  let emailDelivered = Boolean(dedication.email_sent_at);
+
   if (!email) {
+    // Not retryable: a Stripe retry re-reads the same session, which has no
+    // email address on it. We log loudly and let the order show up in /admin
+    // rather than returning 500 forever for something no retry can fix.
     console.error(
-      `[stripe-webhook] order ${orderId} has no customer email — certificate cannot be delivered.`
+      `[stripe-webhook] order ${orderId} has no customer email — certificate cannot be delivered. ` +
+        'A retry cannot fix this; the address must be obtained manually.'
     );
-  } else if (certificateUrl && !dedication.email_sent_at) {
+  } else if (certificateUrl && !emailDelivered) {
     try {
       const mailResult = await sendCertificateEmail({
         to: email,
@@ -412,6 +423,7 @@ async function handleCheckoutCompleted(session) {
           .from('dedications')
           .update({ email_sent_at: new Date().toISOString() })
           .eq('id', dedication.id);
+        emailDelivered = true;
       } else {
         console.error('[stripe-webhook] email not sent:', JSON.stringify(mailResult));
       }
@@ -424,7 +436,7 @@ async function handleCheckoutCompleted(session) {
   // A 500 here is the mechanism that makes the resume path reachable; without
   // it a transient PDF or Resend outage would be permanent.
   const stillMissing =
-    certificateFailed || (Boolean(certificateUrl) && Boolean(email) && !dedication.email_sent_at);
+    certificateFailed || (Boolean(certificateUrl) && Boolean(email) && !emailDelivered);
 
   if (stillMissing) {
     throw new Error(`fulfilment incomplete for order ${orderId} — will retry`);
