@@ -3,7 +3,7 @@ import HomeClient from '@/components/HomeClient';
 import { fetchThemes, fetchVersesWithMeta, fetchRecentFeed } from '@/lib/verseData';
 import { SITE_NAME, SITE_DESCRIPTION, siteUrl } from '@/lib/site';
 
-export default function Home({ verses, themes, feedItems, justDedicated, dataUnavailable }) {
+export default function Home({ verses, themes, feedItems, dataUnavailable }) {
   const title = `${SITE_NAME} — Dedicate a Bible Verse`;
   const shareImage = `${siteUrl()}/og-image.png`;
   return (
@@ -30,7 +30,6 @@ export default function Home({ verses, themes, feedItems, justDedicated, dataUna
         verses={verses}
         themes={themes}
         feedItems={feedItems}
-        justDedicated={justDedicated}
       />
     </>
   );

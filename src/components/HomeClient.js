@@ -33,7 +33,6 @@ export default function HomeClient({
   verses,
   themes,
   feedItems,
-  justDedicated,
   dataUnavailable = false,
 }) {
   const router = useRouter();
@@ -42,6 +41,36 @@ export default function HomeClient({
   const [verseModal, setVerseModal] = useState(null);
   const [personalizeOpen, setPersonalizeOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(null);
+
+  // ---- Return-from-checkout state ----
+  //
+  // This page is prerendered with getStaticProps, so the server render
+  // never sees a query string: `?dedicated=1` cannot be read in props.
+  // The banner therefore has to be driven from the client, after
+  // hydration, from router.query.
+  //
+  // We read the value once on mount and then STRIP the query string.
+  // Without the strip, a refresh or a back-navigation replays the
+  // "your dedication is on its way" banner for a purchase that may have
+  // happened days ago — telling a customer their order is in flight when
+  // it was already delivered.
+  const [checkoutState, setCheckoutState] = useState(null);
+  useEffect(() => {
+    if (!router.isReady) return;
+    const { dedicated, canceled } = router.query;
+
+    if (dedicated) {
+      setCheckoutState('dedicated');
+    } else if (canceled) {
+      setCheckoutState('canceled');
+    } else {
+      return;
+    }
+
+    // Drop the params so the message does not survive a reload. Shallow
+    // routing keeps this from re-running getStaticProps.
+    router.replace('/', undefined, { shallow: true });
+  }, [router.isReady, router.query]);
 
   // Support deep links like /?open=<verse_id> (used by verse pages' CTA).
   useEffect(() => {
@@ -201,9 +230,15 @@ export default function HomeClient({
 
   return (
     <>
-      {justDedicated && (
+      {checkoutState === 'dedicated' && (
         <div className="banner" role="status">
-          Your dedication is on its way — check your email for the certificate.
+          Your dedication is on its way — we&apos;ll email your certificate shortly.
+        </div>
+      )}
+
+      {checkoutState === 'canceled' && (
+        <div className="banner banner-muted" role="status">
+          Checkout canceled — nothing was charged.
         </div>
       )}
 

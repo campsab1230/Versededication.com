@@ -124,6 +124,14 @@ a {
   font-weight: 500;
 }
 
+/* Neutral variant for non-celebratory notices (e.g. "checkout canceled").
+   Using the gold .banner for this would read as good news. */
+.banner-muted {
+  background: var(--cream-card);
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--line);
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;
