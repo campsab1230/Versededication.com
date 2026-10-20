@@ -1229,3 +1229,252 @@ value pasted verbatim (no surrounding quotes), TTL Auto -> then click Verify.
 
 If Resend generated a new keypair, the old key would be invalid anyway, so
 recovering the deleted value has no value.
+
+---
+
+## 26. Stripe is live-mode capable, but the secret key is MISSING from Production (2026-10-20)
+
+### The finding
+
+`GET /api/health` on the deployed build reports:
+
+```json
+"stripe_vars_present": ["STRIPE_PUBLISHABLE_KEY", "STRIPE_WEBHOOK_SECRET"],
+"key_var": null,
+"mode": "missing",
+"ok": false
+```
+
+That is the **complete list of every `STRIPE*` variable name visible to the
+Production build**. There is no secret key under any of the five names
+`src/lib/stripe.js` now accepts. `POST /api/create-checkout-session` returns
+**HTTP 500** — checkout is down, not merely in test mode.
+
+### Why this superseded the earlier diagnosis
+
+An earlier build (`EI56wXY6ii8zt8GuuPsn2`) returned `cs_test_`, so the key was
+present then and was a **test** key. The variable then **disappeared entirely**
+between builds — it was removed, not emptied (an empty variable would still
+appear in that list). Most likely the swap to a live key was saved to the wrong
+scope or the wrong project.
+
+The `STRIPE_PUBLISHABLE_KEY` the site does have is **dead weight**: the app
+never reads a publishable key. Checkout redirects to Stripe's hosted page, so
+there is no client-side Stripe JS anywhere in `src/`.
+
+### The fix (user action, one field)
+
+1. Vercel → the **versededication** project (not ExSpaceTrash) → Settings →
+   Environment Variables.
+2. Add **`STRIPE_SECRET_KEY`** — exact name, all caps.
+3. Value: Stripe → Developers → API keys → **Reveal live key** (`sk_live_…`,
+   ~107 chars). Copy the **revealed** string; the masked label on the page
+   (`sk_live_…55Rm`) is not a key and produces `mode: "malformed"`.
+4. Tick **Production**, then Save.
+5. **Then** Deployments → ⋯ → Redeploy. Save first — redeploying first bakes in
+   the old value.
+6. `GET /api/health` must report `"mode":"live"` and `"ok":true`.
+
+`STRIPE_WEBHOOK_SECRET` is already set. Two things the health endpoint cannot
+verify and that must be eyeballed once: it must be the **live** `whsec_` (test
+and live secrets are both `whsec_` and look identical), and the live endpoint
+must subscribe to **both** `checkout.session.completed` and
+`checkout.session.async_payment_succeeded`. Without the second, a delayed
+payment charges the card and never fulfils.
+
+### `/api/health` — why it exists
+
+Vercel inlines env vars **per build**, and a Marketplace integration can
+provision a key under a name the app does not read. Both produce a site that
+deploys fine and silently cannot charge. The endpoint answers "can THIS build
+take money?" in one GET. It exposes **variable names and key class only** —
+never a value, length, or character.
+
+### `src/lib/stripe.js` now accepts aliases
+
+`STRIPE_SECRET_KEY`, `STRIPE_LIVE_SECRET_KEY`, `STRIPE_SECRET_KEY_LIVE`,
+`STRIPE_API_KEY`, `STRIPE_KEY` (first non-empty wins). Values are normalised —
+surrounding quotes and all whitespace stripped — because a trailing newline
+from a dashboard paste is enough to make a valid live key 401 opaquely. The
+webhook accepts `STRIPE_WEBHOOK_SECRET` or `STRIPE_WEBHOOK_SIGNING_SECRET`.
+
+---
+
+## 27. Three fulfilment defects that let a paying customer receive nothing (2026-10-20)
+
+All three end the same way: the card is charged, the customer gets nothing, and
+no error surfaces anywhere.
+
+### 27.1 Sales were permanently lost after any transient failure
+
+The order row is written **before** the certificate is rendered and **before**
+the email is sent. The old duplicate guard then returned early whenever an
+order existed:
+
+```js
+if (existing) { console.log('already exists'); return; }   // ← the bug
+```
+
+So a PDF or Resend failure left a paid order with no certificate and no email,
+and **every Stripe retry hit that same early return**. The failure could never
+heal. Fulfilment is now keyed off what is still *missing* — dedication?
+certificate? email? — and the handler returns 500 only when something genuinely
+remains undone, which is what makes Stripe keep retrying.
+
+### 27.2 The duplicate guard was skipped entirely for $0 sessions
+
+The guard ran inside `if (paymentIntentId)`, but `payment_intent` is **null**
+for `no_payment_required` sessions (100%-discounted or zero-total orders). For
+those, every retry inserted another order **and another dedication**, and
+emailed another certificate.
+
+Now keyed on `stripe_session_id` (`cs_…`, always present) with the
+payment-intent id as fallback. `db/add-orders-session-id.sql` adds the column.
+The code degrades gracefully on `42703`/`PGRST204` so the migration and the
+deploy can land in **either order** — the deploy does not have to wait on the
+SQL. Two overlapping deliveries that both insert resolve by **adopting the
+winner's row** (`23505`), not by retrying an insert that can never succeed.
+
+### 27.3 The certificate email pointed at the homepage
+
+```js
+certificateUrl: certificateUrl || siteUrl()    // ← the bug
+```
+
+When rendering failed, the customer received an email whose "Download your
+certificate" button went to the homepage. That is **worse than sending
+nothing**: it looks like delivery, so it is never reported and the failure is
+silent. Email is now sent only when a real certificate URL exists, and
+`dedications.email_sent_at` — which **nothing in `src/` had ever written** — is
+set on success so a retry cannot mail the same person twice.
+
+### A defect introduced and caught in my own patch
+
+`stillMissing` originally re-tested `dedication.email_sent_at`, which holds the
+value read at the **start** of the request and is therefore still `null` after
+a successful send. That would have marked a completed fulfilment as incomplete
+and returned 500, asking Stripe to redo finished work. Now tracked in a local
+`emailDelivered` flag.
+
+### `findDedicationForOrder` deliberately avoids `.maybeSingle()`
+
+`maybeSingle()` **errors** when more than one row matches, and
+`dedications.order_id` has **no unique constraint** — so the duplicates created
+by 27.2 are exactly the orders this resume logic exists to repair. With
+`maybeSingle` the error would be swallowed, `data` would read `null`, and
+**another** dedication would be inserted on every retry, making it worse each
+time. It fetches a list, takes the earliest row, and logs the extras.
+
+---
+
+## 28. Customers paid and saw NO confirmation (2026-10-20)
+
+`src/pages/index.js` is prerendered via `getStaticProps` (`revalidate: 60`), so
+the server render **never sees a query string**. `HomeClient` declared a
+`justDedicated` prop and rendered a banner from it at line 204 — but
+`getStaticProps` returned only `{ verses, themes, feedItems, dataUnavailable }`.
+
+**The prop was never populated. The banner was unreachable dead code.**
+Stripe redirected to `/?dedicated=1&session_id=…` and the customer landed on a
+homepage that said nothing at all.
+
+Now driven from `router.query` after hydration, with the query string **stripped
+via a shallow `router.replace`** — without that, a refresh or a back-navigation
+replays "your dedication is on its way" for an order delivered days ago.
+
+`?canceled=1` had **no UI whatsoever**, so an abandoned checkout was
+indistinguishable from a normal visit. Added, using a new `.banner-muted` class
+so a cancellation does not read as good news.
+
+---
+
+## 29. Admin session cookie held the master password (2026-10-20)
+
+The sign-in cookie was literally `vd_admin=<the raw ADMIN_SECRET>`. A cookie is
+sent on every request and is readable in dev tools, by any extension, and by
+anything that can capture response headers — so anyone who obtained it held the
+**permanent master password**: the one credential that cannot be rotated without
+editing an environment variable and redeploying.
+
+It now carries `HMAC-SHA256(ADMIN_SECRET, 'vd-admin-session-v1')`:
+
+* not reversible into the secret;
+* deterministic, so no session table or KV store is needed;
+* the label is signed too, so the token cannot be replayed against another HMAC
+  use of the same secret;
+* **rotating `ADMIN_SECRET` invalidates every existing cookie for free.**
+
+Added per-IP sign-in throttling (8 attempts / 15 min), flagged in the code as
+**best-effort**: it is per-instance and in-memory, so it blunts a scripted
+brute force but is not a distributed-attacker defence.
+
+Existing sessions fail the token check and simply require signing in again —
+the intended upgrade path. Verified live: no cookie → 401, wrong password →
+401, forged old-style cookie → 401.
+
+---
+
+## 30. Repo drift: production revoked on `orders`, the repo only had a comment (2026-10-20)
+
+Production was measured returning **401 `42501 permission denied for table
+orders`**, i.e. the privilege had been revoked there — but `db/schema.sql`
+carried only the line `-- No select policy on orders — intentionally
+service-role only.` **Rebuilding from `setup.sql` would have silently dropped
+the hardening.**
+
+Closed, with the rationale recorded inline: with the blanket grant still in
+place an anon request returns `200 []` — which reads as "empty table", not
+"refused" — and any future policy slip would expose customer emails, amounts
+and shipping addresses. Every `orders` accessor already goes through
+`supabaseAdmin()` (`stripe-webhook.js`, `admin/orders.js`), so revoking cannot
+break the site.
+
+### Proven on real Postgres 17, not asserted
+
+Scratch cluster, Supabase roles created (`anon`, `authenticated`,
+`service_role`), and **`alter default privileges … grant all on tables`** to
+reproduce Supabase's blanket grant — without that the revokes would pass
+vacuously and prove nothing. Then `db/setup.sql` run end to end:
+
+* exit 0, no errors, `11` themes + `45` verses + `45` links;
+* `orders` → **0** privileges for both `anon` and `authenticated`;
+* `dedications` withholds exactly `order_id`, `message`, `certificate_url`,
+  `email_sent_at` and grants the other nine columns.
+
+Migration verified separately against a **pre-migration** table shape holding
+data: column added nullable, `2 rows preserved, 0 backfilled`; four NULLs
+accepted; duplicate `cs_live_…` rejected with `23505`; exactly one row
+survived.
+
+---
+
+## 31. Current deploy state
+
+| | |
+|---|---|
+| Commit | `5b3bf1d`, in sync with `origin/main` |
+| Deploy | `dpl_…`, production, iad1 |
+| Homepage | 200 |
+| `/verse/[slug]` | 200 |
+| `/api/stripe-webhook` unsigned POST | 400 (correct) |
+| `/api/admin/orders` no cookie / bad password / forged cookie | 401 / 401 / 401 |
+| `/api/create-checkout-session` | **500 — blocked on `STRIPE_SECRET_KEY`** |
+| `/api/health` | `"ok": false`, `"mode": "missing"` |
+
+**The site is up. Everything is verified working except payments, and payments
+are blocked on one environment variable.**
+
+### Still open
+
+1. **[BLOCKER]** `STRIPE_SECRET_KEY` in Vercel Production (§26).
+2. Confirm the live webhook secret and both event types (§26).
+3. **Apply `db/add-orders-session-id.sql`** — the code runs without it, but the
+   real idempotency key is only active once it is applied.
+4. **Rotate the Supabase `service_role` key** — it is in `.env.local` and was
+   used during this audit; it bypasses RLS entirely.
+5. Run one real $7.99 purchase with a live card. That is the only test that
+   proves charge → webhook → PDF → email end to end.
+6. `EMAIL_FROM` is `certificates@versededication.com`, which is **not a real
+   inbox**. Consider DMARC. Register the business entity.
+7. Backlog: `/order/[id]` re-download, admin UI for `verse_requests`,
+   Supabase keep-alive.
