@@ -1181,3 +1181,51 @@ rasterised images as the visual confirmation. Both are now scripted:
   15MB. Not worth a history rewrite for a private repo; noted in case it ever is.
 - Retired the scratch Postgres clusters used for the SQL regression tests
   (`/tmp/pgfix`, `/tmp/pge2e`); confirmed no postgres process or port left behind.
+
+---
+
+## 25. DKIM records deleted — both of them (2026-10-20)
+
+While following the §21 "delete the stale one" instruction, the user deleted
+**both** TXT records at `resend._domainkey.versededication.com`.
+
+### Verified state
+
+| record | state |
+|---|---|
+| `resend._domainkey` TXT | **NXDOMAIN** — gone (Cloudflare DoH + Google DoH agree) |
+| `_dmarc` TXT | **NXDOMAIN** — was never set up, or also removed |
+| `send` MX (2) | intact — `send.forge.rmta.net`, `10 feedback.forge.rmta.net` |
+| `send` TXT/SPF | intact — `v=spf1 ip4:52.3.252.119 ip4:44.222.39.36 ip4:199.249.231.0/24 ~all` |
+| `send` A | intact |
+
+**Effect: outbound mail from this domain is still sent, but it is no longer
+DKIM-signed.** SPF still passes (the `send` return-path records are untouched),
+so this is a deliverability/spam-folder problem, not an outage. Restoring the
+DKIM TXT record fixes it; no code or Vercel change is needed.
+
+### Why the old values cannot be restored from here
+
+I only ever recorded the **truncated** prefixes in §21 (`len=52` and `len=56`).
+There is no full 218-character value anywhere on disk, in git history, or in
+`/tmp`. Recovery was attempted and failed:
+
+- 3 public DoH resolvers -> `NXDOMAIN` on all
+- 12 DoH resolvers scanned for a stale cache -> none returned the record
+- `grep` across the repo, all branches, and `/tmp` -> nothing
+- Cloudflare audit log -> unreachable, `CLOUDFLARE_API_TOKEN` is not set
+- Resend API -> unreachable, `RESEND_API_KEY` is empty in `.env.local`
+
+**The lesson worth keeping: never hand over a destructive DNS instruction without
+first persisting the full value somewhere recoverable.** Truncated prefixes are
+enough to *identify* a record, not to restore it.
+
+### Fix
+
+Re-add the record **from Resend**, which is now the only source of truth:
+resend.com -> Domains -> `versededication.com` -> copy the DKIM TXT value
+(`p=MIGf...`) -> add it in Cloudflare as Type `TXT`, Name `resend._domainkey`,
+value pasted verbatim (no surrounding quotes), TTL Auto -> then click Verify.
+
+If Resend generated a new keypair, the old key would be invalid anyway, so
+recovering the deleted value has no value.
