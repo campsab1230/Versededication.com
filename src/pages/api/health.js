@@ -5,28 +5,27 @@
 //
 // WHY THIS EXISTS
 // Vercel bakes environment variables in at BUILD time. Editing a
-// variable does nothing to the running deployment, and Marketplace
-// integrations can inject a *second* variable under a different name
-// ("Managed" keys), leaving an older plain variable in place. The
-// result is a site that looks deployed, works, and silently charges
-// in test mode.
-//
-// This endpoint answers "is THIS build live?" without a redeploy-and-
-// hope cycle.
+// variable does nothing to the running deployment, and the Stripe
+// Marketplace integration can provision a key under a name this app
+// does not read — or under no name at all until the project is
+// explicitly connected to the integration resource. The result is a
+// site that looks deployed, serves pages fine, and cannot charge a
+// card. This endpoint answers "is THIS build able to take money?"
+// without a redeploy-and-hope cycle.
 //
 // ⚠️  NEVER return any part of a secret here. This route is public.
-//     Only the *class* of the key (live/test/missing) is exposed,
-//     never the value, length, or any character of it.
+//     Only the *class* of the key (live / test / missing) and the
+//     NAMES of variables are exposed — never a value, length, or
+//     character of one.
 // ============================================================
 
-function keyMode(key) {
-  if (!key) return 'missing';
-  if (key.startsWith('sk_live_')) return 'live';
-  if (key.startsWith('sk_test_')) return 'test';
-  // A key that is neither is most likely truncated, quoted, or has a
-  // stray newline from a bad paste.
-  return 'malformed';
-}
+import {
+  KEY_VARS,
+  keyMode,
+  resolveStripeKey,
+  resolveWebhookSecret,
+  stripeKeyReport,
+} from '@/lib/stripe';
 
 function presence(value) {
   return value && String(value).trim() ? 'set' : 'missing';
@@ -41,49 +40,69 @@ export default function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const mode = keyMode(process.env.STRIPE_SECRET_KEY);
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const resolved = resolveStripeKey();
+  const mode = keyMode(resolved ? resolved.value : '');
+  const webhook = resolveWebhookSecret();
 
-  // A live key paired with a test-mode webhook secret is the quiet
-  // killer: Stripe takes the money, the webhook fails signature
-  // verification, and the customer never receives their certificate.
-  // We cannot verify the secret itself without a real event, so we
-  // surface both facts and let the two be compared.
+  // NAMES ONLY — never values. This is the diagnostic that separates
+  // "the key was never provided to this build" from "the key is here,
+  // but under a name this app does not read". Variable names are not
+  // secrets; the values never enter this array.
+  const stripeVarsPresent = Object.keys(process.env)
+    .filter((name) => /^STRIPE/i.test(name))
+    .sort();
+
   const priceIdsInUse = {
     digital: presence(process.env.STRIPE_PRICE_DIGITAL),
     heirloom: presence(process.env.STRIPE_PRICE_HEIRLOOM),
   };
 
   const warnings = [];
-  if (mode !== 'live') {
+
+  if (!resolved) {
     warnings.push(
-      'Stripe is not in live mode for this deployment. Real cards cannot be charged.'
+      `No Stripe secret key in this build. Looked for: ${KEY_VARS.join(', ')}. ` +
+        'If you installed the Vercel Stripe integration, the project must be ' +
+        'connected to the integration resource before the variable appears.'
+    );
+  } else if (mode === 'test') {
+    warnings.push(
+      `Stripe is in TEST mode (key came from ${resolved.name}). Real cards cannot be charged.`
+    );
+  } else if (mode === 'malformed') {
+    warnings.push(
+      `The key in ${resolved.name} starts with neither sk_live_ nor sk_test_. ` +
+        'It was probably truncated, quoted, or pasted with a stray character.'
     );
   }
-  if (mode === 'live' && presence(webhookSecret) === 'missing') {
+
+  if (mode === 'live' && !webhook) {
     warnings.push(
-      'Live key with no webhook secret: payments will succeed but no certificate will be generated or emailed.'
+      'Live key with no webhook signing secret: cards will be charged but no ' +
+        'certificate will be generated or emailed. This is the worst failure ' +
+        'mode because it looks like success to the customer.'
     );
   }
-  if (mode === 'malformed') {
+
+  if (priceIdsInUse.digital === 'set' || priceIdsInUse.heirloom === 'set') {
     warnings.push(
-      'STRIPE_SECRET_KEY does not start with sk_live_ or sk_test_ — it was probably truncated or quoted when pasted.'
-    );
-  }
-  if (
-    priceIdsInUse.digital === 'set' ||
-    priceIdsInUse.heirloom === 'set'
-  ) {
-    warnings.push(
-      'Pre-created Price IDs are configured. Price IDs made in test mode do not exist in live mode and will fail checkout with "No such price".'
+      'Pre-created Price IDs are configured. Price IDs created in test mode do ' +
+        'not exist in live mode and fail checkout with "No such price".'
     );
   }
 
   return res.status(200).json({
-    ok: mode === 'live',
+    // `ok` means "this build can take a real payment", not "the site loaded".
+    ok: mode === 'live' && Boolean(webhook),
     stripe: {
       mode,
-      webhook_secret: presence(webhookSecret),
+      // The variable that actually supplied the key. Names are not secret.
+      key_var: resolved ? resolved.name : null,
+      key_vars_checked: stripeKeyReport(),
+      // Every STRIPE* variable name visible to THIS build, sorted.
+      // Names only — values never appear here.
+      stripe_vars_present: stripeVarsPresent,
+      webhook_secret: webhook ? `set (${webhook.name})` : 'missing',
       price_ids: priceIdsInUse,
     },
     supabase: {

@@ -1,4 +1,4 @@
-import { stripe } from '@/lib/stripe';
+import { stripe, resolveWebhookSecret } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getTier, isValidTier } from '@/lib/pricing';
 import { insertDedication } from '@/lib/dedications';
@@ -21,11 +21,16 @@ export default async function handler(req, res) {
     return res.status(405).end();
   }
 
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    console.error('[stripe-webhook] STRIPE_WEBHOOK_SECRET is not set.');
+  // Accept either known variable name — a Marketplace integration and a
+  // hand-created variable are both plausible sources for this value.
+  const resolvedSecret = resolveWebhookSecret();
+  if (!resolvedSecret) {
+    console.error(
+      '[stripe-webhook] No webhook signing secret. Looked for STRIPE_WEBHOOK_SECRET, STRIPE_WEBHOOK_SIGNING_SECRET.'
+    );
     return res.status(500).json({ error: 'Webhook not configured.' });
   }
+  const secret = resolvedSecret.value;
 
   const sig = req.headers['stripe-signature'];
   let event;
