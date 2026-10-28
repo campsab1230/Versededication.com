@@ -90,6 +90,18 @@ export default function HomeClient({
     }
   }, [router.query.open, verses]);
 
+  // Resolve the verse that was just dedicated from the slug Stripe handed
+  // back in success_url.
+  //
+  // The slug is only an identifier. Reconstructing a title from it reads
+  // "Dedicate joshua 1 9", because a slug is lowercased and has lost the
+  // colon. The real reference ("Joshua 1:9") is already in the verses prop,
+  // so look it up rather than prettifying the slug.
+  const sharedVerse = useMemo(
+    () => (sharedVerseSlug ? verses.find((v) => v.slug === sharedVerseSlug) : null),
+    [sharedVerseSlug, verses]
+  );
+
   const [recipient, setRecipient] = useState('');
   const [dedicator, setDedicator] = useState('');
   const [message, setMessage] = useState('');
@@ -263,11 +275,15 @@ export default function HomeClient({
                     : `${siteUrl()}/`
                 }
                 title={
-                  sharedVerseSlug
-                    ? `Dedicate ${sharedVerseSlug.replace(/-/g, ' ')} — ${SITE_NAME}`
+                  sharedVerse
+                    ? `Dedicate ${sharedVerse.ref} — ${SITE_NAME}`
                     : `${SITE_NAME} — Dedicate a Bible Verse`
                 }
-                text="A word for today. A light for tomorrow."
+                text={
+                  sharedVerse
+                    ? `“${snippetOf(sharedVerse.text, 110)}” — dedicate ${sharedVerse.ref} to someone you love.`
+                    : 'A word for today. A light for tomorrow.'
+                }
               />
             </div>
           </div>
