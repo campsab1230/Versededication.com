@@ -186,6 +186,13 @@ for (const file of targets) {
     console.log(`FAIL  ${label}  (${refs.length} refs, ${errors.length} bad)`)
     for (const e of errors) console.log(e)
     bad += errors.length
+  } else if (refs.length === 0) {
+    // ⚠️  This checker only parses `insert into t (cols)` and `update t set col`.
+    // A read-only file (SELECT-only) therefore yields zero refs, and printing a
+    // plain "ok" here once let a green tick stand in for real verification on
+    // db/verify-fulfilment.sql — which validated nothing. Say so explicitly so
+    // the absence of coverage can never be mistaken for coverage.
+    console.log(`SKIP  ${label}  (0 refs — no insert/update columns in this file)`)
   } else {
     console.log(`ok    ${label}  (${refs.length} column refs verified)`)
   }
