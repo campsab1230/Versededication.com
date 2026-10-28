@@ -90,17 +90,6 @@ export default function HomeClient({
     }
   }, [router.query.open, verses]);
 
-  // Resolve the shared verse from the slug Stripe handed back.
-  //
-  // The slug is only an identifier; the real reference ("Joshua 1:9") is
-  // already in the verses prop. Reconstructing it from the slug would be
-  // wrong — the slug is lowercase and has lost the colon, so it would read
-  // "Dedicate joshua 1 9".
-  const sharedVerse = useMemo(
-    () => (sharedVerseSlug ? verses.find((v) => v.slug === sharedVerseSlug) : null),
-    [sharedVerseSlug, verses]
-  );
-
   const [recipient, setRecipient] = useState('');
   const [dedicator, setDedicator] = useState('');
   const [message, setMessage] = useState('');
@@ -274,15 +263,11 @@ export default function HomeClient({
                     : `${siteUrl()}/`
                 }
                 title={
-                  sharedVerse
-                    ? `Dedicate ${sharedVerse.ref} — ${SITE_NAME}`
+                  sharedVerseSlug
+                    ? `Dedicate ${sharedVerseSlug.replace(/-/g, ' ')} — ${SITE_NAME}`
                     : `${SITE_NAME} — Dedicate a Bible Verse`
                 }
-                text={
-                  sharedVerse
-                    ? `“${snippetOf(sharedVerse.text, 110)}” — dedicate ${sharedVerse.ref} to someone you love.`
-                    : 'A word for today. A light for tomorrow.'
-                }
+                text="A word for today. A light for tomorrow."
               />
             </div>
           </div>
@@ -790,17 +775,6 @@ export default function HomeClient({
                 onClick={submitRequest}
                 disabled={requestBusy}
               >
-                {requestBusy ? 'Sending…' : 'Request this verse'}
-              </button>
-              <p className="request-foot">King James Version · added within 24 hours</p>
-            </>
-          )}
-        </Modal>
-      )}
-    </>
-  );
-}
-           >
                 {requestBusy ? 'Sending…' : 'Request this verse'}
               </button>
               <p className="request-foot">King James Version · added within 24 hours</p>
