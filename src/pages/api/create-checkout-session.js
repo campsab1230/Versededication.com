@@ -46,9 +46,12 @@ export default async function handler(req, res) {
     const tierConfig = getTier(tier);
 
     // Confirm the verse exists (prevents orphan metadata / abuse).
+    // `slug` is fetched so success_url can point at the public page for the
+    // verse that was just dedicated — the post-checkout share panel needs a
+    // real page to link to, not the homepage.
     const { data: verse, error: verseErr } = await supabaseAdmin()
       .from('verses')
-      .select('id, reference')
+      .select('id, reference, slug')
       .eq('id', verse_id)
       .single();
 
@@ -89,7 +92,15 @@ export default async function handler(req, res) {
       line_items: [lineItem],
       metadata,
       payment_intent_data: { metadata },
-      success_url: `${base}/?dedicated=1&session_id={CHECKOUT_SESSION_ID}`,
+      // `verse` carries the slug so the post-payment page can offer a share
+      // link to that verse's page. It is a slug, not the id, because the
+      // share URL has to be the public, indexable, previewable page.
+      //
+      // `base` comes from siteUrl(), which normalises the apex domain to
+      // www. Returning a customer to the apex would cost them a 308 hop
+      // right after they paid, and crawlers that fetch this URL for a link
+      // preview often will not follow it.
+      success_url: `${base}/?dedicated=1&verse=${encodeURIComponent(verse.slug || '')}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/?canceled=1`,
       // Let us email the certificate link afterwards.
       customer_creation: 'always',

@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Modal from './Modal';
-import { MAX_MESSAGE_LENGTH, CHARITY_PERCENT, CHARITY } from '@/lib/site';
+import { MAX_MESSAGE_LENGTH, CHARITY_PERCENT, CHARITY, SITE_NAME, siteUrl } from '@/lib/site';
 import { TIERS, formatPrice } from '@/lib/pricing';
 import { snippetOf } from '@/lib/text';
+import ShareButtons from './ShareButtons';
 
 const FAQ_ITEMS = [
   {
@@ -55,12 +56,18 @@ export default function HomeClient({
   // happened days ago — telling a customer their order is in flight when
   // it was already delivered.
   const [checkoutState, setCheckoutState] = useState(null);
+  // The slug of the verse just dedicated, handed back by Stripe's success_url
+  // (`?verse=<slug>`). Held in state because the query string is stripped
+  // immediately below — without this the share panel would have nothing to
+  // link to and would fall back to the homepage.
+  const [sharedVerseSlug, setSharedVerseSlug] = useState(null);
   useEffect(() => {
     if (!router.isReady) return;
-    const { dedicated, canceled } = router.query;
+    const { dedicated, canceled, verse } = router.query;
 
     if (dedicated) {
       setCheckoutState('dedicated');
+      if (typeof verse === 'string' && verse) setSharedVerseSlug(verse);
     } else if (canceled) {
       setCheckoutState('canceled');
     } else {
@@ -231,9 +238,40 @@ export default function HomeClient({
   return (
     <>
       {checkoutState === 'dedicated' && (
-        <div className="banner" role="status">
-          Your dedication is on its way — we&apos;ll email your certificate shortly.
-        </div>
+        <>
+          <div className="banner" role="status">
+            Your dedication is on its way — we&apos;ll email your certificate shortly.
+          </div>
+          {/* Share panel — the moment right after payment is the only point
+              where a customer is both delighted and still on the site. The
+              share target is the PUBLIC VERSE PAGE (indexable, has a real
+              Open Graph card), not the certificate PDF: the PDF is a
+              personalised file behind a link the customer may not want
+              broadcast, and it renders as a blank attachment in most
+              timelines. */}
+          <div className="share-banner">
+            <div className="share-banner-inner">
+              <p className="share-banner-title">Know someone who needs this verse?</p>
+              <p className="share-banner-sub">
+                Share it — it costs nothing, and it may be the word they needed today.
+              </p>
+              <ShareButtons
+                label={null}
+                url={
+                  sharedVerseSlug
+                    ? `${siteUrl()}/verse/${sharedVerseSlug}`
+                    : `${siteUrl()}/`
+                }
+                title={
+                  sharedVerseSlug
+                    ? `Dedicate ${sharedVerseSlug.replace(/-/g, ' ')} — ${SITE_NAME}`
+                    : `${SITE_NAME} — Dedicate a Bible Verse`
+                }
+                text="A word for today. A light for tomorrow."
+              />
+            </div>
+          </div>
+        </>
       )}
 
       {checkoutState === 'canceled' && (

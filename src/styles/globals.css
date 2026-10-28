@@ -132,6 +132,120 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
+/* ---------- Post-checkout share ----------
+   Sits under the success banner. The banner is the one moment a customer is
+   happiest and most likely to tell someone, so the share targets belong
+   there rather than buried in a footer they never scroll to. */
+.share-banner {
+  background: var(--cream-card);
+  border-bottom: 1px solid var(--line);
+  padding: 18px 20px 20px;
+}
+.share-banner-inner {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+.share-banner-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 17px;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.share-banner-sub {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 14px;
+}
+
+/* ---------- Share ---------- */
+.share {
+  margin: 0;
+}
+.share-label {
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 10px;
+}
+.share-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.share-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+.share-btn:hover {
+  border-color: var(--gold);
+  color: var(--gold-text);
+  background: rgba(168, 130, 61, 0.06);
+}
+.share-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+/* Confirmation state for the copy button. Colour alone is not enough, so the
+   label text also changes to "Copied" in the component. */
+.share-copied,
+.share-copied:hover {
+  border-color: var(--gold);
+  color: var(--gold-text);
+  background: rgba(168, 130, 61, 0.12);
+}
+
+/* On the dark footer the same buttons need lighter ink. */
+.share--footer .share-label {
+  color: #a79e85;
+}
+.share--footer .share-btn {
+  border-color: rgba(241, 234, 216, 0.22);
+  color: #c9c0a8;
+}
+.share--footer .share-btn:hover {
+  border-color: var(--gold-light);
+  color: var(--gold-light);
+  background: rgba(201, 169, 104, 0.1);
+}
+.share--footer .share-copied,
+.share--footer .share-copied:hover {
+  border-color: var(--gold-light);
+  color: var(--gold-light);
+  background: rgba(201, 169, 104, 0.16);
+}
+
+@media (max-width: 560px) {
+  .share-btn {
+    /* Full-width targets are easier to hit than 8px gaps of pill on a
+       phone, and the label stays visible so nothing is ambiguous. */
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
+    padding: 11px 12px;
+  }
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex;

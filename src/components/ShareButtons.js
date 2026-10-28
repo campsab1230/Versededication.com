@@ -141,7 +141,10 @@ export default function ShareButtons({
 
   return (
     <div className={`share ${variant === 'footer' ? 'share--footer' : ''}`}>
-      <p className="share-label">{label}</p>
+      {/* `label={null}` is allowed: the post-checkout panel supplies its own
+          heading, and a second uppercase label under it would just repeat
+          itself. */}
+      {label ? <p className="share-label">{label}</p> : null}
       <div className="share-row">
         {targets.map((t) => (
           <a

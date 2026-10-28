@@ -9,13 +9,58 @@ export const SITE_KICKER = 'A word for today. A light for tomorrow.';
 export const SITE_DESCRIPTION =
   'Dedicate a Bible verse to someone you love. A gift that says more than words ever could.';
 
-// Public base URL, no trailing slash. Falls back to localhost during dev.
+// ============================================================
+// CANONICAL HOST
+//
+// The apex domain (versededication.com) 308-redirects to www in
+// Vercel. That redirect is harmless in a browser and FATAL for
+// anything that does not follow it:
+//
+//   * Stripe webhooks — a 308 counts as a failed delivery. This is
+//     exactly how every event was lost before the endpoint URL was
+//     changed to www. Do not reintroduce it.
+//   * Share/link preview crawlers — Facebook, X, WhatsApp and Slack
+//     fetchers frequently render a blank card for a redirecting URL
+//     rather than following to the final page.
+//
+// So every URL this app EMITS (canonical, og:url, share links,
+// Stripe success/cancel URLs) must name the host that actually
+// serves the response. Normalising here means it cannot drift from
+// whatever NEXT_PUBLIC_SITE_URL happens to be set to.
+//
+// Deliberately a fixed map, not a general "strip the apex" rule:
+// localhost, *.vercel.app previews and any other host are left
+// completely alone.
+// ============================================================
+const CANONICAL_HOST_OVERRIDES = {
+  'versededication.com': 'www.versededication.com',
+};
+
+function normalizeCanonicalHost(base) {
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch {
+    // Not a parseable absolute URL — hand it back untouched rather than
+    // guessing. A malformed base should look wrong, not silently change.
+    return base;
+  }
+
+  const target = CANONICAL_HOST_OVERRIDES[parsed.hostname.toLowerCase()];
+  if (!target) return base;
+
+  parsed.hostname = target;
+  return parsed.toString().replace(/\/+$/, '');
+}
+
+// Public base URL, no trailing slash, always on the canonical host.
+// Falls back to localhost during dev.
 export function siteUrl() {
   const raw =
     process.env.NEXT_PUBLIC_SITE_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '') ||
     'http://localhost:3000';
-  return raw.replace(/\/+$/, '');
+  return normalizeCanonicalHost(raw.replace(/\/+$/, ''));
 }
 
 export const BIBLE_TRANSLATION = 'King James Version';
