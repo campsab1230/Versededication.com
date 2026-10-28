@@ -27,6 +27,7 @@ import {
   resolveWebhookSecret,
   stripeKeyReport,
 } from '@/lib/stripe';
+import { senderAddresses, isFreemailAddress } from '@/lib/email';
 
 function presence(value) {
   return value && String(value).trim() ? 'set' : 'missing';
@@ -103,6 +104,21 @@ export default function handler(req, res) {
     );
   }
 
+  const {
+    from: mailFrom,
+    replyTo: mailReplyTo,
+  } = senderAddresses();
+
+  // A free-mail From address is not a cosmetic problem: Resend cannot sign it,
+  // so every certificate email fails. flag it rather than reporting "set".
+  if (isFreemailAddress(process.env.EMAIL_FROM || '')) {
+    warnings.push(
+      `EMAIL_FROM is a free-mail address, which Resend cannot send from. ` +
+        `Certificates are being sent from ${mailFrom} with replies routed to ${mailReplyTo}. ` +
+        `Set EMAIL_FROM to an address on versededication.com, or remove it.`
+    );
+  }
+
   return res.status(200).json({
     // `ok` means "this build can take a real payment", not "the site loaded".
     ok: mode === 'live' && Boolean(webhook),
@@ -124,7 +140,12 @@ export default function handler(req, res) {
     },
     email: {
       resend: presence(process.env.RESEND_API_KEY),
-      from: presence(process.env.EMAIL_FROM),
+      // The addresses actually used when the next email goes out — resolved,
+      // not merely "is the variable set". A From we cannot send from is
+      // reported here as what it really is.
+      sends_from: mailFrom,
+      replies_to: mailReplyTo,
+      email_from_var: presence(process.env.EMAIL_FROM),
     },
     site_url: process.env.NEXT_PUBLIC_SITE_URL || null,
     deployment: {

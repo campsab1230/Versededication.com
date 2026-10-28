@@ -1,4 +1,4 @@
-import { SITE_NAME, siteUrl } from './site';
+import { SITE_NAME, CONTACT_EMAIL, siteUrl } from './site';
 
 // ============================================================
 // SERVER-ONLY email delivery via Resend.
@@ -13,6 +13,88 @@ import { SITE_NAME, siteUrl } from './site';
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
+// ============================================================
+// SENDER vs REPLY-TO — two different jobs
+//
+// `from` must be an address on a domain you CONTROL, because Resend
+// authenticates it with DKIM/SPF records published in that domain's DNS.
+// versededication.com is verified, so certificates@versededication.com works.
+//
+// A free-mail address (gmail.com, outlook.com, …) can NEVER be the sender:
+// we do not control gmail.com's DNS, there is nothing to sign with, and
+// Resend rejects the send. Setting EMAIL_FROM to a Gmail address therefore
+// stops certificate delivery entirely — at the exact moment a customer has
+// paid, and with no error visible to them.
+//
+// Replies are the separate problem. The certificate is sent from the brand
+// address, but a customer hitting "Reply" must reach a monitored inbox. That
+// is `reply_to`, and it may be ANY address, free mail included.
+// ============================================================
+const FREEMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com',
+  'outlook.com', 'hotmail.com', 'hotmail.co.uk', 'live.com', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com',
+  'proton.me', 'protonmail.com', 'pm.me', 'gmx.com', 'gmx.net',
+  'mail.com', 'zoho.com', 'yandex.com', 'aol.co.uk',
+  'comcast.net', 'verizon.net', 'sbcglobal.net', 'att.net', 'cox.net',
+]);
+
+// Always deliverable: an address on the verified brand domain.
+const BRAND_FROM = `${SITE_NAME} <certificates@versededication.com>`;
+
+/** Pull the address out of either `a@b.com` or `Name <a@b.com>`. */
+function bareAddress(value) {
+  const s = String(value || '').trim();
+  const m = s.match(/<\s*([^>\s]+)\s*>/);
+  return (m ? m[1] : s).trim();
+}
+
+function domainOf(value) {
+  const addr = bareAddress(value);
+  const at = addr.lastIndexOf('@');
+  return at === -1 ? '' : addr.slice(at + 1).toLowerCase();
+}
+
+export function isFreemailAddress(value) {
+  return FREEMAIL_DOMAINS.has(domainOf(value));
+}
+
+/**
+ * Resolve the From and Reply-To for an outgoing message.
+ *
+ * EMAIL_REPLY_TO wins when set; otherwise replies go to the public contact
+ * address — the same inbox the contact/privacy/terms pages already advertise,
+ * so a customer replying to a certificate and a customer using the contact
+ * page both land in one place.
+ *
+ * If EMAIL_FROM is a free-mail address we refuse to use it as the sender and
+ * fall back to the brand domain, routing to that address instead. That way a
+ * misconfiguration degrades to "replies go to the right inbox" rather than
+ * "no certificates are delivered at all".
+ */
+export function senderAddresses() {
+  const configured = String(process.env.EMAIL_FROM || '').trim();
+  const replyConfigured = String(process.env.EMAIL_REPLY_TO || '').trim();
+  const replyTo = bareAddress(replyConfigured || CONTACT_EMAIL);
+
+  if (!configured) {
+    return { from: BRAND_FROM, replyTo };
+  }
+
+  if (isFreemailAddress(configured)) {
+    const addr = bareAddress(configured);
+    console.warn(
+      `[email] EMAIL_FROM is a free-mail address (${addr}). Resend cannot send ` +
+        'from it — its domain DNS is not ours, so there is nothing to authenticate ' +
+        `against. Sending from ${bareAddress(BRAND_FROM)} and routing replies to ` +
+        `${addr} instead.`
+    );
+    return { from: BRAND_FROM, replyTo: addr };
+  }
+
+  return { from: configured, replyTo };
+}
+
 export async function sendCertificateEmail({
   to,
   recipientName,
@@ -21,7 +103,7 @@ export async function sendCertificateEmail({
   tier,
 }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM || `${SITE_NAME} <onboarding@resend.dev>`;
+  const { from, replyTo } = senderAddresses();
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — skipping certificate email to', to);
@@ -66,7 +148,10 @@ export async function sendCertificateEmail({
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ from, to, subject, html }),
+    // reply_to is what makes a customer's "Reply" reach a monitored inbox.
+    // The From address is the brand domain (deliverable); the reply address is
+    // whatever real inbox the operator watches.
+    body: JSON.stringify({ from, to, subject, html, reply_to: replyTo }),
   });
 
   if (!res.ok) {
@@ -95,7 +180,7 @@ export const VERSE_REQUEST_ETA = 'within 24 hours';
 
 export async function sendVerseRequestEmail({ to, reference, requesterName, adminTo }) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM || `${SITE_NAME} <onboarding@resend.dev>`;
+  const { from, replyTo } = senderAddresses();
 
   if (!apiKey) {
     console.warn('[email] RESEND_API_KEY not set — skipping verse-request email for', reference);
@@ -133,6 +218,7 @@ export async function sendVerseRequestEmail({ to, reference, requesterName, admi
       to,
       subject: `We received your request for ${reference}`,
       html,
+      reply_to: replyTo,
     });
   } else {
     results.requester = { skipped: true, reason: 'no requester email' };
@@ -157,6 +243,9 @@ export async function sendVerseRequestEmail({ to, reference, requesterName, admi
       to: adminTo,
       subject: `Verse request: ${reference}`,
       html: adminHtml,
+      // Replying to the internal notification should reach the same monitored
+      // inbox, not the brand certificate address.
+      reply_to: replyTo,
     });
   } else {
     results.admin = { skipped: true, reason: 'no admin address' };
