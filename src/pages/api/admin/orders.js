@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ADMIN_COOKIE } from '@/lib/site';
+import { looksLikeStripeKey } from '@/lib/stripe';
 
 // ============================================================
 // /api/admin/orders
@@ -60,7 +61,33 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
+// ============================================================
+// ADMIN_SECRET must never be usable as a login password when it holds a
+// Stripe key.
+//
+// The Stripe live secret key was placed in ADMIN_SECRET. That variable is
+// ALSO the /admin login password, so without this guard the credential that
+// can charge cards, issue refunds and read every customer record would be a
+// password someone types into a web form — where it is captured by password
+// managers, browser sync, extensions, and anything watching the DOM.
+//
+// We therefore refuse admin sign-in entirely while ADMIN_SECRET is
+// Stripe-key-shaped, and say so plainly instead of failing mysteriously.
+// The fix is small: a real STRIPE_SECRET_KEY in Vercel, plus a random
+// ADMIN_SECRET.
+// ============================================================
+function adminSecretIsPaymentKey() {
+  // Shares looksLikeStripeKey() so this can never disagree with the Stripe
+  // resolver about whether ADMIN_SECRET holds a key. That helper also rejects
+  // masked display labels ('sk_live_...55Rm') and short strings, so a stray
+  // prefix in a normal password cannot disable the admin surface.
+  return looksLikeStripeKey(process.env.ADMIN_SECRET);
+}
+
 function passwordMatches(provided) {
+  // Belt and braces: even if the guard above were bypassed, the raw key is
+  // never accepted as a password.
+  if (adminSecretIsPaymentKey()) return false;
   return safeEqual(provided, process.env.ADMIN_SECRET);
 }
 
@@ -146,6 +173,17 @@ export default async function handler(req, res) {
   }
 
   try {
+    // Fail loudly rather than letting the key masquerade as a password.
+    if (adminSecretIsPaymentKey()) {
+      return res.status(503).json({
+        error:
+          'Admin is disabled: ADMIN_SECRET currently holds a Stripe secret key. ' +
+          'Add a real STRIPE_SECRET_KEY in Vercel, then set ADMIN_SECRET to a ' +
+          'separate random string and redeploy.',
+        reason: 'admin_secret_is_payment_key',
+      });
+    }
+
     const key = throttleKey(req);
 
     // ---- Sign in ----

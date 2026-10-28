@@ -20,6 +20,7 @@
 // ============================================================
 
 import {
+  FALLBACK_KEY_VAR,
   KEY_VARS,
   keyMode,
   resolveStripeKey,
@@ -73,6 +74,17 @@ export default function handler(req, res) {
     warnings.push(
       `The key in ${resolved.name} starts with neither sk_live_ nor sk_test_. ` +
         'It was probably truncated, quoted, or pasted with a stray character.'
+    );
+  }
+
+  // The fallback is working, but say plainly what it means: the credential that
+  // can charge cards is currently also the /admin login password.
+  if (resolved && resolved.name === FALLBACK_KEY_VAR) {
+    warnings.push(
+      'The Stripe key is being read from ADMIN_SECRET, which is also the /admin ' +
+        'login password. Payments work, but that password should not be a payment ' +
+        'secret. Create a real STRIPE_SECRET_KEY (Production) and set ADMIN_SECRET ' +
+        'to a separate random string, then redeploy.'
     );
   }
 

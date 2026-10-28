@@ -24,6 +24,56 @@ export const KEY_VARS = [
   'STRIPE_KEY',
 ];
 
+// ============================================================
+// LAST-RESORT FALLBACK: ADMIN_SECRET
+//
+// The live key was placed in ADMIN_SECRET, which is also the /admin login
+// password. Rather than leave checkout returning 500 while that gets sorted
+// out, we read it from there too — but ONLY when the value actually looks
+// like a Stripe key.
+//
+// The shape check is essential. ADMIN_SECRET normally holds a random admin
+// password, and blindly feeding that to the Stripe SDK produces a 401 from
+// Stripe that looks like "your key is wrong" when the real problem is "you
+// never set a key". Requiring the `sk_`/`rk_` prefix means either the value
+// IS a usable key, or we correctly report it as missing.
+//
+// ⚠️  This is a stopgap, not a design. A live payment secret that doubles as
+// a web-form password is exposed to everything that captures form input:
+// password managers, browser sync, extensions, and shoulder-surfing over a
+// 107-character paste. Once payments are confirmed working, create a real
+// STRIPE_SECRET_KEY and replace ADMIN_SECRET with a random string.
+// ============================================================
+export const FALLBACK_KEY_VAR = 'ADMIN_SECRET';
+
+/**
+ * True when a value is shaped like any Stripe API secret key.
+ *
+ * ⚠️  The LENGTH and ELLIPSIS checks are load-bearing, not defensive padding.
+ * Stripe's dashboard shows a *masked label* by default — `sk_live_...55Rm` —
+ * and that string starts with `sk_live_`, so a prefix test alone reports it as
+ * a valid live key. It is not: it is nine characters of display text plus an
+ * ellipsis. Feeding it to the SDK yields a 401 that reads like "your key is
+ * wrong", when the real problem is "you copied the label instead of revealing
+ * the key".
+ *
+ * A real secret key is ~107 characters of URL-safe base64 and contains no
+ * ellipsis. Both tests must pass.
+ */
+export function looksLikeStripeKey(value) {
+  const v = normalizeSecret(value);
+
+  if (v.includes('...') || v.includes('…')) return false; // masked display label
+  if (v.length < 40) return false; // real keys are ~107 chars
+
+  return (
+    v.startsWith('sk_live_') ||
+    v.startsWith('sk_test_') ||
+    v.startsWith('rk_live_') ||
+    v.startsWith('rk_test_')
+  );
+}
+
 const WEBHOOK_VARS = [
   'STRIPE_WEBHOOK_SECRET',
   'STRIPE_WEBHOOK_SIGNING_SECRET',
@@ -56,15 +106,35 @@ export function resolveStripeKey() {
     const value = normalizeSecret(process.env[name]);
     if (value) return { name, value };
   }
+
+  // Fallback: ADMIN_SECRET, but only when it is genuinely key-shaped. A random
+  // admin password must never be handed to Stripe — see the block above.
+  const adminValue = normalizeSecret(process.env[FALLBACK_KEY_VAR]);
+  if (looksLikeStripeKey(adminValue)) {
+    return { name: FALLBACK_KEY_VAR, value: adminValue };
+  }
+
   return null;
 }
 
-/** Which candidate names are populated right now. Names are not secret. */
+/**
+ * Which candidate names are populated right now. Names are not secret.
+ * ADMIN_SECRET is reported by SHAPE, not presence: saying "set" would imply it
+ * is usable for Stripe when it is usually just the admin password.
+ */
 export function stripeKeyReport() {
   const found = {};
   for (const name of KEY_VARS) {
     found[name] = normalizeSecret(process.env[name]) ? 'set' : 'missing';
   }
+
+  const adminValue = normalizeSecret(process.env[FALLBACK_KEY_VAR]);
+  found[FALLBACK_KEY_VAR] = !adminValue
+    ? 'missing'
+    : looksLikeStripeKey(adminValue)
+      ? 'set (usable stripe key)'
+      : 'set (not a stripe key — ignored)';
+
   return found;
 }
 
