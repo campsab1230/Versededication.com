@@ -19,6 +19,7 @@ function generateSiteMap(verseSlugs) {
 
   const staticPages = [
     ['', 'daily', '1.0'],
+    ['/memorial', 'weekly', '0.8'],
     ['/privacy', 'monthly', '0.3'],
     ['/terms', 'monthly', '0.3'],
     ['/refunds', 'monthly', '0.3'],

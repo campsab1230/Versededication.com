@@ -337,7 +337,8 @@ insert into themes (name, slug, sort_order) values
 ('New Baby / Child', 'new-baby', 8),
 ('Gratitude', 'gratitude', 9),
 ('Friendship', 'friendship', 10),
-('Healing', 'healing', 11)
+('Healing', 'healing', 11),
+('In Loving Memory', 'in-loving-memory', 12)
 on conflict (name) do nothing;
 
 insert into verses (book, chapter, verse_start, verse_end, reference, slug, text_kjv, featured) values
@@ -413,6 +414,10 @@ select v.id, t.id from verses v, themes t where (v.slug, t.slug) in (
   ('psalm-127-3','new-baby'),('jeremiah-1-5','new-baby'),('proverbs-22-6','new-baby'),('isaiah-40-11','new-baby'),
   ('1-thessalonians-5-18','gratitude'),('psalm-100-4-5','gratitude'),('james-1-17','gratitude'),
   ('proverbs-17-17','friendship'),('ecclesiastes-4-12','friendship'),('john-15-13','friendship'),
-  ('jeremiah-17-14','healing'),('3-john-1-2','healing'),('psalm-30-2','healing')
+  ('jeremiah-17-14','healing'),('3-john-1-2','healing'),('psalm-30-2','healing'),
+  ('psalm-23-1-4','in-loving-memory'),('matthew-5-4','in-loving-memory'),
+  ('psalm-34-18','in-loving-memory'),('psalm-147-3','in-loving-memory'),
+  ('2-corinthians-1-3-4','in-loving-memory'),('john-14-27','in-loving-memory'),
+  ('revelation-21-4','in-loving-memory')
 )
 on conflict do nothing;

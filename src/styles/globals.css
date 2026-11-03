@@ -1084,6 +1084,40 @@ footer p {
   display: flex;
 }
 
+/* ---------- Memorial / In Loving Memory ---------- */
+/* Quiet by design — this section is reached by grieving families,
+   often from a card handed to them by a funeral home or church.
+   Same layout language as the rest of the site, nothing loud. */
+.memorial-verses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 36px;
+}
+.memorial-verses a.theme-chip {
+  text-decoration: none;
+}
+.memorial-verses a.theme-chip:hover {
+  border-color: var(--gold);
+  color: var(--gold-text);
+}
+.memorial-cta {
+  text-align: center;
+}
+.memorial-grid .verse-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+.memorial-grid .verse-ref,
+.memorial-grid .verse-snippet {
+  display: block;
+}
+.memorial-grid .verse-meta {
+  display: flex;
+}
+
 /* ---------- Admin ---------- */
 .admin-table {
   width: 100%;

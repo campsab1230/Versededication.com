@@ -123,6 +123,7 @@ export default function VersePage({ verse, related }) {
           Verse Dedication
         </div>
         <nav className="footer-links" aria-label="Footer">
+          <a href="/memorial">In Loving Memory</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
           <a href="/refunds">Refunds</a>
