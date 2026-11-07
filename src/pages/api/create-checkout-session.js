@@ -90,6 +90,8 @@ export default async function handler(req, res) {
     const sessionParams = {
       mode: 'payment',
       line_items: [lineItem],
+      // Show the promotion-code box so Stripe coupons (OURGIFT, SHARE50, ...) can be redeemed.
+      allow_promotion_codes: true,
       metadata,
       payment_intent_data: { metadata },
       // `verse` carries the slug so the post-payment page can offer a share
