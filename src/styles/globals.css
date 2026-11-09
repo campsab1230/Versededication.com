@@ -374,7 +374,8 @@ a {
   border-radius: 999px;
   background: var(--cream);
   font-family: 'Inter', sans-serif;
-  font-size: 15px;
+  /* 16px for the same reason as .field inputs: prevent focus auto-zoom. */
+  font-size: 16px;
   color: var(--ink);
 }
 .search-input::placeholder {
@@ -736,6 +737,10 @@ footer p {
   justify-content: center;
   padding: 40px 20px;
   overflow-y: auto;
+  /* Keep scroll gestures (incl. the bounce when the on-screen
+     keyboard opens/closes) inside the overlay, off the page. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .modal {
   background: var(--cream-card);
@@ -795,7 +800,13 @@ footer p {
   border-radius: 5px;
   background: var(--cream);
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
+  /* 16px, not smaller: below 16px, mobile browsers (iOS Safari and
+     in-app webviews like Messenger's) auto-ZOOM the page when a field
+     is focused. In the modal that zoom pans the form and the field
+     appears to "pop out" from under the user's fingers while typing
+     — reported live 2026-11-09 by a customer dedicating a verse for
+     her family. 16px is the threshold: at or above it, no zoom. */
+  font-size: 16px;
   color: var(--ink);
 }
 .field textarea {
@@ -893,7 +904,10 @@ footer p {
   font-size: 12.5px;
   color: var(--ink-soft);
   font-style: italic;
-  min-height: 18px;
+  /* Always rendered (empty or not) with room for two lines, so the
+     first character typed into the message field does not grow the
+     certificate preview and shove the form fields down mid-typing. */
+  min-height: 36px;
   margin-bottom: 10px;
 }
 .cert-from {

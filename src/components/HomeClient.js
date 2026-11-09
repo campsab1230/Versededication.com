@@ -648,7 +648,9 @@ export default function HomeClient({
             <div className="cert-verse">
               &ldquo;{verseModal.text}&rdquo; — {verseModal.ref}
             </div>
-            {message && <div className="cert-msg">&ldquo;{message}&rdquo;</div>}
+            {/* Always rendered so typing the first character does not
+                grow the preview and shift the fields below it. */}
+            <div className="cert-msg">{message ? `“${message}”` : ' '}</div>
             <div className="cert-from">
               dedicated by <b>{dedicator.trim() || 'Anonymous'}</b>
             </div>
