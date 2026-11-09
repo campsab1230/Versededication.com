@@ -8,6 +8,7 @@ import { TIERS, formatPrice } from '@/lib/pricing';
 import { snippetOf } from '@/lib/text';
 import ShareButtons from './ShareButtons';
 import { MEMORIAL_VERSES } from '@/lib/memorial';
+import { PET_MEMORIAL_VERSES } from '@/lib/petMemorial';
 
 const FAQ_ITEMS = [
   {
@@ -370,6 +371,32 @@ export default function HomeClient({
         </div>
       </section>
 
+      <section className="section" id="pet-memorial">
+        <div className="wrap">
+          <div className="section-head">
+            <h2>For a Beloved Pet</h2>
+            <p>
+              For the one who was never &ldquo;just a pet.&rdquo; Not one sparrow
+              falls without the Father — choose a verse about God&rsquo;s care for
+              every creature He made, add their name and yours, and keep a
+              dedication worthy of what they were to you.
+            </p>
+          </div>
+          <div className="memorial-verses" aria-label="Verses for losing a pet">
+            {PET_MEMORIAL_VERSES.map((v) => (
+              <a key={v.slug} className="theme-chip" href={`/verse/${v.slug}`}>
+                {v.ref}
+              </a>
+            ))}
+          </div>
+          <div className="memorial-cta">
+            <a href="/pet-memorial" className="btn btn-dark">
+              Visit For a Beloved Pet
+            </a>
+          </div>
+        </div>
+      </section>
+
       <section className="section browse" id="browse">
         <div className="wrap">
           <div className="section-head">
@@ -571,6 +598,7 @@ export default function HomeClient({
         </p>
         <nav className="footer-links" aria-label="Footer">
           <a href="/memorial">In Loving Memory</a>
+          <a href="/pet-memorial">For a Beloved Pet</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
           <a href="/refunds">Refunds</a>

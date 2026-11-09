@@ -1,5 +1,5 @@
 -- ============================================================
--- VERSE DEDICATION — seed data (themes + 45 verses + theme links)
+-- VERSE DEDICATION — seed data (themes + 50 verses + theme links)
 -- Run AFTER schema.sql in the Supabase SQL Editor.
 -- Safe to re-run: uses ON CONFLICT DO NOTHING.
 -- ============================================================
@@ -16,7 +16,8 @@ insert into themes (name, slug, sort_order) values
 ('Gratitude', 'gratitude', 9),
 ('Friendship', 'friendship', 10),
 ('Healing', 'healing', 11),
-('In Loving Memory', 'in-loving-memory', 12)
+('In Loving Memory', 'in-loving-memory', 12),
+('For a Beloved Pet', 'pet-memorial', 13)
 on conflict (name) do nothing;
 
 insert into verses (book, chapter, verse_start, verse_end, reference, slug, text_kjv, featured) values
@@ -74,7 +75,13 @@ insert into verses (book, chapter, verse_start, verse_end, reference, slug, text
 
 ('Jeremiah', 17, 14, null, 'Jeremiah 17:14', 'jeremiah-17-14', 'Heal me, O Lord, and I shall be healed; save me, and I shall be saved: for thou art my praise.', false),
 ('3 John', 1, 2, null, '3 John 1:2', '3-john-1-2', 'Beloved, I wish above all things that thou mayest prosper and be in health, even as thy soul prospereth.', false),
-('Psalm', 30, 2, null, 'Psalm 30:2', 'psalm-30-2', 'O Lord my God, I cried unto thee, and thou hast healed me.', false)
+('Psalm', 30, 2, null, 'Psalm 30:2', 'psalm-30-2', 'O Lord my God, I cried unto thee, and thou hast healed me.', false),
+
+('Matthew', 10, 29, null, 'Matthew 10:29', 'matthew-10-29', 'Are not two sparrows sold for a farthing? and one of them shall not fall on the ground without your Father.', false),
+('Psalm', 36, 6, null, 'Psalm 36:6', 'psalm-36-6', 'Thy righteousness is like the great mountains; thy judgments are a great deep: O LORD, thou preservest man and beast.', false),
+('Proverbs', 12, 10, null, 'Proverbs 12:10', 'proverbs-12-10', 'A righteous man regardeth the life of his beast: but the tender mercies of the wicked are cruel.', false),
+('Psalm', 145, 9, null, 'Psalm 145:9', 'psalm-145-9', 'The LORD is good to all: and his tender mercies are over all his works.', false),
+('Genesis', 9, 16, null, 'Genesis 9:16', 'genesis-9-16', 'And the bow shall be in the cloud; and I will look upon it, that I may remember the everlasting covenant between God and every living creature of all flesh that is upon the earth.', false)
 on conflict (reference) do nothing;
 
 insert into verse_themes (verse_id, theme_id)
@@ -96,6 +103,13 @@ select v.id, t.id from verses v, themes t where (v.slug, t.slug) in (
   ('psalm-23-1-4','in-loving-memory'),('matthew-5-4','in-loving-memory'),
   ('psalm-34-18','in-loving-memory'),('psalm-147-3','in-loving-memory'),
   ('2-corinthians-1-3-4','in-loving-memory'),('john-14-27','in-loving-memory'),
-  ('revelation-21-4','in-loving-memory')
+  ('revelation-21-4','in-loving-memory'),
+  ('matthew-10-29','pet-memorial'),('psalm-36-6','pet-memorial'),
+  ('proverbs-12-10','pet-memorial'),('psalm-145-9','pet-memorial'),
+  ('psalm-34-18','pet-memorial'),('psalm-147-3','pet-memorial'),
+  ('genesis-9-16','pet-memorial'),('revelation-21-4','pet-memorial'),
+  ('matthew-10-29','protection'),('psalm-36-6','hope-comfort'),
+  ('proverbs-12-10','guidance-wisdom'),('psalm-145-9','gratitude'),
+  ('genesis-9-16','faith')
 )
 on conflict do nothing;

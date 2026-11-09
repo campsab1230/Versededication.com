@@ -136,6 +136,11 @@ export default function Memorial({ verses, dataUnavailable }) {
             <a href="/#browse">Request it on the home page</a> — it&rsquo;s added
             within 24 hours.
           </p>
+
+          <p className="request-inline">
+            Missing a beloved pet instead?{' '}
+            <a href="/pet-memorial">Visit For a Beloved Pet</a>
+          </p>
         </div>
       </section>
 
@@ -196,6 +201,7 @@ export default function Memorial({ verses, dataUnavailable }) {
         </p>
         <nav className="footer-links" aria-label="Footer">
           <a href="/memorial">In Loving Memory</a>
+          <a href="/pet-memorial">For a Beloved Pet</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
           <a href="/refunds">Refunds</a>
