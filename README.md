@@ -22,7 +22,7 @@ PDFs generated server-side via **pdf-lib**.
 - **Personalize modal** with a live certificate preview, recipient/name/message fields, and a
   character counter.
 - **Privacy toggle** — "show my dedication in the public feed," defaults on.
-- **Two tiers** — Digital ($7.99) and Heirloom ($14.99, collects shipping).
+- **Two tiers** — Digital ($2.99) and Heirloom ($12.99, collects shipping).
 - **Stripe Checkout** created server-side. The price is looked up on the server; the browser only
   sends a tier key.
 - **Idempotent Stripe webhook** that records the order, creates the dedication with a race-safe
